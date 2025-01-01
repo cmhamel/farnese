@@ -1,0 +1,77 @@
+// type read in by rust
+//Program = _{ SOI ~ Exprs ~ EOI }
+
+Program = {
+  SOI ~
+  ((Expr)? ~ NEWLINE)* ~
+  EOI
+}
+
+Exprs = _{ (Expr ~ NEWLINE*)+ }
+
+// reserved keywords
+KEYWORD = @{ 
+  "abstract" |
+  "end" |
+  "type"
+}
+
+// allowable variable names
+//Identifier = @{ !KEYWORD ~ (ASCII_ALPHA | "_") ~ ASCII_ALPHANUMERIC* }
+Identifier = @{ ASCII_ALPHANUMERIC+ | "_" }
+//Identifier = @{ !KEYWORD ~ (ASCII_ALPHANUMERIC+ | "_") }
+
+// components of an expression
+Expr = {
+  //KEYWORD |
+  AbstractTypeExpr
+  //BinaryExpr |
+  //EndExpr |
+  //Identifier |
+  //Term | 
+  //UnaryExpr
+}
+
+// TODO needs a lot of work
+Term = _{Int | "(" ~ Expr ~ ")" }
+
+// Different expression types below in alphabetical order
+
+abstract = { "abstract" }
+type = { "type" }
+end = { "end" }
+
+AbstractTypeExpr = _{
+  abstract ~ WHITESPACE ~ type ~ WHITESPACE ~ Identifier ~ WHITESPACE ~ end
+}
+
+//AbstractTypeExpr = {
+//  "abstract type" 
+//}
+
+BinaryExpr = { 
+  Term ~ (Operator ~ Term)+ 
+}
+
+EndExpr = {
+  WHITESPACE? ~ "end"
+}
+
+UnaryExpr = { 
+  Operator ~ Term 
+}
+
+// operators
+Operator = { 
+  "+" | 
+  "-" 
+}
+
+// built in types
+Int = @{ Operator? ~ ASCII_DIGIT+ }
+
+// reserved whitepsace
+WHITESPACE = _{ " " | "\t" | "\n" }
+
+// when to terminate parsing
+EOF = _{ EOI | ";" }
