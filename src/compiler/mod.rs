@@ -1,8 +1,8 @@
 pub mod compiler;
 // pub mod interpreter;
 
-use crate::ast::Node;
-use crate::parser;
+use crate::parser::ast::Node;
+use crate::parser::parser;
 pub use compiler::Compiler;
 
 pub trait Compile {

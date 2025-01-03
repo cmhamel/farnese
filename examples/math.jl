@@ -55,3 +55,7 @@ myvar = a + (b + 1)
 printf(myvar)
 myvar2 = a + (1 + (2 + 3))
 printf(myvar2)
+d = -a
+printf(d)
+e = -(1 + 2)
+printf(e)

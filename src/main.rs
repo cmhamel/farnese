@@ -1,19 +1,19 @@
 // move to a lib.rs
-pub mod ast;
 pub mod base;
+pub mod core;
 pub mod compiler;
 pub mod parser;
 // pub mod repl;
 
 use crate::compiler::{Compile, Compiler};
+// use crate::core::runtime::Runtime;
 // use crate::compiler::interpreter::Interpreter;
 
 use clap::{Parser, Subcommand};
 use inkwell::context::Context;
-// use inkwell::types::AnyTypeEnum;
 use std::fs;
-use std::fs::File;
-use std::io::Write;
+// use std::fs::File;
+// use std::io::Write;
 
 
 #[derive(Clone, Debug, Parser)]
@@ -50,14 +50,11 @@ fn main() {
       let text = fs::read_to_string(input);
       let context = Context::create();
       let mut compiler = Compiler::new(&context);
-      // let _ = match text {
-      //   Ok(x) => compiler.from_source(&x),
-      //   Err(_) => panic!("Bad file.")
-      // };
+      // let runtime = Runtime::new(&context);
 
       // add format strings for different types
-      compiler.build_format_string("%f ", "__format_f64");
-      compiler.build_format_string("%d ", "__format_i64");
+      // compiler.build_format_string("%f ", "__format_f64");
+      // compiler.build_format_string("%d ", "__format_i64");
 
       // compiler.build_alloca(AnyTypeEnum::IntType(context.i32_type()), "tag");
 
@@ -67,10 +64,13 @@ fn main() {
       };
       compiler.build_default_return();
 
-      let ir = compiler.dump_ir();
-      let mut file = File::create(output).expect("Unable to create file");
-      file.write_all(ir.as_bytes()).expect("Unable to write data");
+      // let ir = compiler.dump_ir();
+      let _ = compiler.write_ir_to_file(&output);
+      // let mut file = File::create(output).expect("Unable to create file");
+      // file.write_all(ir.as_bytes()).expect("Unable to write data");
       // compiler.build();
+
+      // let _ = runtime.dump_ir();
     },
     // Some(Commands::Farnese {
     //   input

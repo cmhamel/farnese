@@ -1,4 +1,4 @@
-use crate::base;
+use crate::core;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,14 +24,14 @@ impl fmt::Display for Operator {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Parameter {
-  pub name: base::Symbol,
+  pub name: core::Symbol,
   pub supertype: Option<Box<Parameter>>
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Identifier {
   Parameter(Parameter),
-  Symbol(base::Symbol)
+  Symbol(core::Symbol)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,13 +46,13 @@ pub enum Primitive {
 pub enum Node {
   // basics
   AbstractType {
-    name: base::Symbol,
+    name: core::Symbol,
     params: Box<Node>, 
     // supertype: Box<Node>
     // subtype: Box<Node>
   },
   AssignmentExpr {
-    identifier: base::Symbol,
+    identifier: core::Symbol,
     value: Box<Node>
   },
   BinaryExpr {
@@ -65,21 +65,28 @@ pub enum Node {
   // Eoi,
   // Float(f64),
   Function {
-    name: base::Symbol,
-    args: Vec<base::Symbol>,
+    name: core::Symbol,
+    args: Vec<core::Symbol>,
     body: Box<Vec<Node>>
   },
   Generics {
     params: Vec<Node>
   },
-  // Int(i64),
+  ImportExpr {
+    module: core::Symbol,
+    element: core::Symbol,
+  },
   // Parameter {
-  //   name: base::Symbol,
-  //   subtype: base::Symbol
+  //   name: core::Symbol,
+  //   subtype: core::Symbol
   // },
   MethodCall {
-    name: base::Symbol,
+    name: core::Symbol,
     args: Vec<Box<Node>>
+  },
+  Module {
+    name: core::Symbol,
+    exprs: Vec<Box<Node>>
   },
   Operator(Operator),
   Parameter(Parameter),
@@ -88,21 +95,19 @@ pub enum Node {
   },
   Primitive(Primitive),
   PrimitiveType {
-    name: base::Symbol,
-    supertype: base::Symbol,
+    name: core::Symbol,
+    supertype: core::Symbol,
     bits: u32
   },
   // SubType {
-  //   name: base::Symbol
+  //   name: core::Symbol
   // },
-  // Symbol {
-  //   name: base::Symbol
-  // },
-  Symbol(base::Symbol),
+  Symbol(core::Symbol),
   UnaryExpr {
     op: Operator,
     child: Box<Node>,
   },
+  UsingExpr(core::Symbol),
 }
 
 impl fmt::Display for Node {
@@ -123,8 +128,16 @@ impl fmt::Display for Node {
         }
         Ok(())
       },
+      Node::ImportExpr { module, element } => write!(f, "{}.{}", module, element),
       // Node::Int(int) => write!(f, "{}", int),
       Node::MethodCall { name, args } => write!(f, "call {}({:?})", name, args),
+      Node::Module { name, exprs } => {
+        write!(f, "{}", name).expect("wtf");
+        for expr in exprs.iter() {
+          write!(f, " {},", expr).expect("wtf");
+        }
+        Ok(())
+      },
       Node::Operator(op) => write!(f, "{:?}", op),
       Node::Parameter(param) => write!(f, ":{} <: :{:?}", param.name.name(), param.supertype),
       Node::ParenthesesExpr { expr } => write!(f, "{:?}", expr),
@@ -132,6 +145,7 @@ impl fmt::Display for Node {
       Node::PrimitiveType { name, supertype, bits } => write!(f, "{} <: {} {}", name.to_ir(), supertype, bits),
       Node::Symbol(name) => write!(f, "{}", name),
       Node::UnaryExpr { op, child } => write!(f, "{}{}", op, child),
+      Node::UsingExpr(name) => write!(f, "{}", name),
     }
   }
 }

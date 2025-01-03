@@ -4,8 +4,11 @@ WHITESPACE = _{ " " | "\t" }
 KEYWORD = @{ 
   "abstract" | 
   "end" |
+  "import" |
+  "module" |
   "primitive" |
-  "type" 
+  "type" |
+  "using"
 }
 alpha = { 'a'..'z' | 'A'..'Z' }
 alpha_num = { 'a'..'z' | 'A'..'Z' | '0'..'9' }
@@ -23,6 +26,10 @@ Exprs = _{ (Expr ~ NEWLINE*)+ }
 
 Expr = { 
   Comment |
+  Module |
+  ImportExpr |
+  UsingExpr |
+  UnaryExpr |
   AbstractType | 
   PrimitiveType |
   Function |
@@ -35,6 +42,9 @@ Expr = {
 }
 
 // different code block types
+Module = { "module" ~ Identifier ~ (Expr | NEWLINE)* ~ "end" }
+ImportExpr = { "import" ~ Identifier ~ "." ~ Identifier ~ NEWLINE }
+UsingExpr = { "using" ~ Identifier ~ NEWLINE }
 AbstractType = { "abstract type" ~ Identifier ~ Generics? ~ SubType? ~ "end" }
 PrimitiveType = { "primitive type" ~ Identifier ~ PrimitiveSubType? ~ PrimitiveBits ~ "end" }
 Function = { "function" ~ Identifier ~ Generics? ~ FunctionArgs? ~ FunctionExprs ~ "end" }
@@ -54,7 +64,8 @@ FunctionExpr = {
   BinaryExpr |
   UnaryExpr |
   MethodCall |
-  Identifier
+  Identifier |
+  NEWLINE
 }
 
 

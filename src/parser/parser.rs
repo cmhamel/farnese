@@ -1,9 +1,9 @@
-use crate::ast::{Node, Operator, Primitive};
-use crate::base::Symbol;
+use crate::core::Symbol;
+use super::ast::{Node, Operator, Primitive};
 use pest::{self, Parser};
 
 #[derive(pest_derive::Parser)]
-#[grammar = "grammar_v2.pest"]
+#[grammar = "./parser/grammar.pest"]
 struct FarneseParser;
 
 pub fn parse(source: &str) -> std::result::Result<Vec<Node>, pest::error::Error<Rule>> {
@@ -12,14 +12,12 @@ pub fn parse(source: &str) -> std::result::Result<Vec<Node>, pest::error::Error<
   
   for pair in pairs {
     let ast_temp = create_ast(pair);
-    // println!("ast = {:?}", ast_temp);
     ast.push(ast_temp);
   }
   Ok(ast)
 }
 
 fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
-  // println!("pair = {:?}", pair);
   let ast: Node = match pair.as_rule() {
     Rule::AbstractType => {
       let name = pair.clone()
@@ -52,21 +50,15 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       }
     },
     Rule::AssignmentExpr => {
-      // println!("Assignment = {:?}", pair);
       let terms: Vec<_> = pair.into_inner().collect();
-      // let name = create_ast(terms[0].clone());
       let name = Symbol::new(terms[0].as_str());
       let val = create_ast(terms[1].clone());
-
-      // Node::Eoi
       Node::AssignmentExpr { identifier: name, value: Box::new(val) }
-    }
+    },
     Rule::BinaryExpr => {
-      // println!("WTF I SHOULD BE HERE {:?}", pair);
       let terms: Vec<_> = pair.into_inner().collect();
       let lhs = create_ast(terms[0].clone());
       let op = match terms[1].as_str() {
-        // "=" => Operator::Assignment,
         "/" => Operator::Divide,
         "-" => Operator::Minus,
         "*" => Operator::Multiply,
@@ -76,34 +68,9 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let rhs = create_ast(terms[2].clone());
       Node::BinaryExpr { op: op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
     },
-    // Rule::Char => {
-    //   // let c = pair.into_inner().collect()::<Vec<_>>()[0].as_str();
-    //   println!("Pair = {:?}", pair);
-    //   // let c: Vec<_> = pair.into_inner().collect();
-    //   // let c = c[0].as_str();
-    //   let c = pair.as_str().replace("'", "");
-    //   let c = c.parse::<char>().unwrap();
-    //   println!("C = {:?}", c);
-    //   // let c = match c.chars().next() {
-    //   //   Some(x) => x,
-    //   //   None => panic!("Bad char encountered")
-    //   // };
-    //   Node::Char(c)
-    // }
     Rule::Comment => Node::Empty,
     Rule::EOI => Node::Empty,
-    Rule::Expr => {
-      create_ast(pair.into_inner().next().unwrap())
-    },
-    // Rule::ExprElem => {
-    //   let expr: Vec<_> = pair.into_inner().collect();
-    //   create_ast(expr[0].clone())
-    //   // Node::Eoi
-    // }
-    // Rule::Float => {
-    //   let float = pair.as_str().parse::<f64>().unwrap();
-    //   Node::Float(float)
-    // },
+    Rule::Expr => create_ast(pair.into_inner().next().unwrap()),
     // Rule::Function => {
     //   let params: Vec<_> = pair.into_inner().collect();
     //   let name = Symbol::new(params[0].as_str());
@@ -164,10 +131,11 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let name = Symbol::new(pair.as_str());
       Node::Symbol(name)
     },
-    // Rule::Int => {
-    //   let int: i64 = pair.as_str().parse::<i64>().unwrap();
-    //   Node::Int(int)
-    // },
+    Rule::ImportExpr => {
+      let module = pair.clone().into_inner().next().unwrap().as_str();
+      let element = pair.clone().into_inner().skip(1).next().unwrap().as_str();
+      Node::ImportExpr { module: Symbol::new(module), element: Symbol::new(element) }
+    },
     Rule::MethodCall => {
       let params: Vec<_> = pair.into_inner().collect();
       let name = Symbol::new(params[0].as_str());
@@ -177,6 +145,20 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
         .map(|x| Box::new(create_ast(x)))
         .collect();
       Node::MethodCall { name: name, args: args }
+    },
+    Rule::Module => {
+      // let exprs: Vec<_> = pair.into_inner().collect();
+      let name = Symbol::new(pair.clone().into_inner().next().unwrap().as_str());
+      let exprs: Vec<_> = pair.into_inner().skip(1).collect();
+      // println!("Module = {}", name);
+      let mut asts = Vec::<Box<Node>>::new();
+      for expr in exprs {
+        let ast = create_ast(expr);
+        asts.push(Box::new(ast))
+      }
+      // panic!("pair = {:?}", pair)
+      // panic!()
+      Node::Module { name: name, exprs: asts }
     }
     // Rule::Parameter => {
     //   let params = pair.into_inner();
@@ -199,18 +181,10 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
     //   Node::Parameter(ret_type)
     // },
     Rule::ParenthesesExpr => {
-      println!("parans = {:?}", pair);
       let params: Vec<_> = pair.into_inner().collect();
       Node::ParenthesesExpr { expr: Box::new(create_ast(params[0].clone())) }
-      // let 
-      // Node::Empty
     }
     Rule::Primitive => create_primitive_ast(pair),
-    // Rule::Primitive => {
-    //   // let val: Vec<_> = pair.into_inner().collect();
-    //   // create_ast(val[0].clone())
-    //   panic!("Got here")
-    // }
     Rule::PrimitiveType => {
       let name = pair.clone()
         .into_inner()
@@ -261,43 +235,26 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
     //   Node::Parameter(ret_type)
     // },
     Rule::UnaryExpr => {
-      println!("pair = {:?}", pair);
       let terms: Vec<_> = pair.into_inner().collect();
-      // let val = farnese_expr()
-      // let op = create_ast(terms[0].clone());
       let op = match terms[0].as_str() {
         "-" => Operator::Minus,
         "+" => Operator::Plus,
         _ => panic!("unsupported op deteceted in unaryexpr")
       };
       let val = create_ast(terms[1].clone());
-      // panic!("here");
-      // Node::Empty
       Node::UnaryExpr { op: op, child: Box::new(val) }
+    },
+    Rule::UsingExpr => {
+      println!("Here for using, time to link");
+      
+      Node::Empty
     }
-    // Rule::UnaryExpr => {
-    //   println!("Here = {:?}", pair);
-    //   let terms: Vec<_> = pair.into_inner().collect();
-    //   let val = create_ast(terms[1].clone());
-    //   let op = match terms[0].as_str() {
-    //     "-" => Operator::Minus,
-    //     "+" => Operator::Plus,
-    //     _ => panic!("wtf")
-    //   };
-    //   Node::UnaryExpr { op: op, child: Box::new(val) }
-    // },
     _ => todo!("todo {:?}", pair.as_rule())
   };
   ast
 }
 
 fn create_primitive_ast(pair: pest::iterators::Pair<Rule>) -> Node {
-  // let prim = match pair.as_rule() {
-  //   Rule::Primitive
-  //   Rule::Float => Primitive::Float(pair.as_str().parse::<f64>().unwrap()),
-  //   Rule::Int => Primitive::Int(pair.as_str().parse::<i64>().unwrap()),
-  //   _ => panic!("Unsupported primitive encountered in ast {:?}", pair)
-  // };
   let prim: Vec<_> = pair.clone().into_inner().collect();
   let prim = match prim[0].as_rule() {
     Rule::Char => {
