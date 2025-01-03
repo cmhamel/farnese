@@ -1,7 +1,7 @@
-mod data_type;
+// mod data_type;
 mod symbol;
 
-pub use data_type::DataType;
+// pub use data_type::DataType;
 pub use symbol::{Symbol, SymbolTable, UniqueSymbolGenerator};
 
 // some traits to help with types, methods etc.

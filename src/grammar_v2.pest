@@ -1,4 +1,6 @@
-WHITESPACE = _{ " " | "\t" | NEWLINE }
+//WHITESPACE = _{ " " | "\t" | NEWLINE }
+WHITESPACE = _{ " " | "\t" }
+
 KEYWORD = @{ 
   "abstract" | 
   "end" |
@@ -20,15 +22,16 @@ Program_other = _{ SOI ~ "\n"* ~ (Expr ~ "\n"+) * ~ Expr? ~ EOI }
 Exprs = _{ (Expr ~ NEWLINE*)+ }
 
 Expr = { 
+  Comment |
   AbstractType | 
   PrimitiveType |
   Function |
+  BinaryExpr |
   Float |
   Int |
   AssignmentExpr |
-  BinaryExpr |
+  //BinaryExpr |
   MethodCall
-  //UnaryExpr
 }
 
 // different code block types
@@ -49,16 +52,33 @@ FunctionExprs = { FunctionExpr* }
 FunctionExpr = {
   AssignmentExpr |
   BinaryExpr |
+  UnaryExpr |
   MethodCall |
   Identifier
 }
 
 
 // expression
-BinaryExpr = { (Identifier | Primitive) ~ BinaryOperator ~ (Identifier | Primitive) }
+ExprTerm = _{ 
+  ParenthesesExpr |
+  Primitive |
+  Identifier |
+  //BinaryExpr |
+  UnaryExpr
+  //"(" ~ (Primitive | Identifier | BinaryExpr) ~ ")" 
+}
+BinaryExpr = { ExprTerm ~ BinaryOperator ~ ExprTerm }
+UnaryExpr = { UnaryOperator ~ ExprTerm }
+//BinaryExpr = { (Identifier | Primitive) ~ BinaryOperator ~ (Identifier | Primitive) }
 //UnaryExpr = { UnaryOperator ~ (Identifier | Primitive) }
+//ParenthesesExpr = { "(" ~ (Primitive | Identifier | BinaryExpr | UnaryExpr) ~ ")" }
+ParenthesesExpr = { "(" ~ (BinaryExpr | ExprTerm) ~ ")" }
 
-AssignmentExpr = { Identifier ~ "=" ~ (BinaryExpr | MethodCall | Identifier | Primitive) }
+AssignmentExpr = { Identifier ~ "=" ~ (ParenthesesExpr | BinaryExpr | MethodCall | Identifier | Primitive | UnaryExpr) }
+//AssignmentExpr = { Identifier ~ "=" ~ ExprTerm }
+//AssignmentExpr = { Identifier ~ "=" ~ (Primitive | ParenthesesExpr | BinaryExpr | MethodCall | Identifier | UnaryExpr) }
+
+
 
 // operators
 BinaryOperator = {
@@ -75,11 +95,14 @@ UnaryOperator = {
 }
 
 Operator = {
-  BinaryOperator |
-  UnaryOperator
+  UnaryOperator |
+  BinaryOperator
 }
 
 // primitive type defaults
+Char = @{
+  "'" ~ ASCII_ALPHANUMERIC ~ "'"
+}
 Int = @{
   "-"? ~
   ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*)
@@ -91,10 +114,15 @@ Float = @{
   (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
 }
 Primitive = {
+  Char |
   Float |
   Int
 }
 
 // basic stuff
-//SingleLineComment = { "#" ~ (!NEWLINE ~ ANY)* }
-//SingleLineComment = { "#" ~ ANY* ~ !NEWLINE* }
+Comment = { BlockComment | SingleLineComment }
+BlockComment = { StartBlock ~ (BlockContent | BlockComment)* ~ EndBlock }
+StartBlock = { "\"\"\"" }
+EndBlock = { "\"\"\"" }
+BlockContent = { (!StartBlock ~ !EndBlock ~ ANY)+ }
+SingleLineComment = { "#" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }

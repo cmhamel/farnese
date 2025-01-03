@@ -22,13 +22,10 @@ impl Interpreter {
 impl Compile for Interpreter {
   type Output = anyhow::Result<i32>; 
 
-  fn from_ast(&mut self, ast: Vec<Node>) -> Self::Output {
-    let mut ret = 0i32;
-    // let mut evaluator = Eval::new();
+  fn from_ast(&mut self, ast: Vec<Node>) -> () {
     for node in ast {
       self.evaluator.eval(&node);
     }
-    Ok(ret)
   }
 }
 

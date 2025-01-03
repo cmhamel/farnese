@@ -34,6 +34,12 @@ pub enum Identifier {
   Symbol(base::Symbol)
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Primitive {
+  Char(char),
+  Float(f64),
+  Int(i64),
+}
 // pub type Generics = Vec<Parameter>;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,8 +60,10 @@ pub enum Node {
     lhs: Box<Node>,
     rhs: Box<Node>,
   },
-  Eoi,
-  Float(f64),
+  // Char(char),
+  Empty,
+  // Eoi,
+  // Float(f64),
   Function {
     name: base::Symbol,
     args: Vec<base::Symbol>,
@@ -64,7 +72,7 @@ pub enum Node {
   Generics {
     params: Vec<Node>
   },
-  Int(i64),
+  // Int(i64),
   // Parameter {
   //   name: base::Symbol,
   //   subtype: base::Symbol
@@ -73,7 +81,12 @@ pub enum Node {
     name: base::Symbol,
     args: Vec<Box<Node>>
   },
+  Operator(Operator),
   Parameter(Parameter),
+  ParenthesesExpr {
+    expr: Box<Node>
+  },
+  Primitive(Primitive),
   PrimitiveType {
     name: base::Symbol,
     supertype: base::Symbol,
@@ -95,23 +108,27 @@ pub enum Node {
 impl fmt::Display for Node {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
     match &self {
-      Node::Int(n) => write!(f, "{}", n),
       Node::AbstractType { name, params } => write!(f, "{} {}", name, params),
       Node::AssignmentExpr { identifier, value } => write!(f, "{} = {}", identifier, value),
       // Node::AbstractType { name, params, subtype } => write!(f, "{} {:?} {}", name, params, subtype),
       Node::BinaryExpr { op, lhs, rhs } => write!(f, "{} {} {}", lhs, op, rhs),
-      Node::Eoi {} => write!(f, ""),
-      Node::Float(val) => write!(f, "{}", val),
+      // Node::Char(c) => write!(f, "{}", c),
+      Node::Empty {} => write!(f, ""),
+      // Node::Eoi {} => write!(f, ""),
+      // Node::Float(val) => write!(f, "{}", val),
       Node::Function { name, args, body } => write!(f, "function {}({:?}) {:?} end", name, args, body),
       Node::Generics { params } => {
         for param in params.iter() {
-          write!(f, " {},", param);
+          write!(f, " {},", param).expect("wtf");
         }
         Ok(())
       },
-      Node::Int(int) => write!(f, "{}", int),
+      // Node::Int(int) => write!(f, "{}", int),
       Node::MethodCall { name, args } => write!(f, "call {}({:?})", name, args),
+      Node::Operator(op) => write!(f, "{:?}", op),
       Node::Parameter(param) => write!(f, ":{} <: :{:?}", param.name.name(), param.supertype),
+      Node::ParenthesesExpr { expr } => write!(f, "{:?}", expr),
+      Node::Primitive(_p) => write!(f, ""),
       Node::PrimitiveType { name, supertype, bits } => write!(f, "{} <: {} {}", name.to_ir(), supertype, bits),
       Node::Symbol(name) => write!(f, "{}", name),
       Node::UnaryExpr { op, child } => write!(f, "{}{}", op, child),

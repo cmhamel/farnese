@@ -10,7 +10,7 @@ use termion::color;
 pub fn repl() -> Result<()> {
   let mut interp = Interpreter::new();
   let mut rl = DefaultEditor::new()?;
-  let mut prev_line = "".to_string();
+  // let mut prev_line = "".to_string();
   loop {
     let farnese = format!("{}farnese> {}", color::Fg(color::Green), color::Fg(color::White));
     let readline = rl.readline(&farnese);
