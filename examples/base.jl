@@ -1,8 +1,10 @@
 module Base
 
-import Core.printf
+# import Core.Any
+# import Core.printf
 
-# using Core
+# using Core        // let _ self.builder.
+
 
 # some comments
 """
@@ -27,8 +29,8 @@ b = 1
 
 c = 3 + 3
 d = a + b
-
-printf(d)
+e = 3.0
+printf(e)
 
 # e = add(a, b)
 
