@@ -1,20 +1,7 @@
-// move to a lib.rs
-pub mod base;
-pub mod core;
-pub mod compiler;
-pub mod parser;
-// pub mod repl;
-
-use crate::compiler::{Compile, Compiler};
-// use crate::core::runtime::Runtime;
-// use crate::compiler::interpreter::Interpreter;
-
 use clap::{Parser, Subcommand};
+use farnese::compiler::{Compile, Compiler};
 use inkwell::context::Context;
 use std::fs;
-// use std::fs::File;
-// use std::io::Write;
-
 
 #[derive(Clone, Debug, Parser)]
 #[command(arg_required_else_help = true, version)]
@@ -31,6 +18,8 @@ enum Commands {
     input: String,
     #[arg(long, short, value_name = "IR FILE")]
     output: String,
+    #[arg(long, short, value_name = "OPTIMIZE")]
+    optimize: bool,
   },
   #[command(about = "Read script")]
   Farnese {
@@ -44,49 +33,22 @@ enum Commands {
 fn main() {
   let args = CLIArgs::parse();
   match args.command {
-    Some(Commands::Compiler {
-      input, output
-    }) => {
-      let text = fs::read_to_string(input);
+    Some(Commands::Compiler { input, output, optimize }) => {
+      let source = fs::read_to_string(input);
       let context = Context::create();
       let mut compiler = Compiler::new(&context);
-      // let runtime = Runtime::new(&context);
 
-      // add format strings for different types
-      // compiler.build_format_string("%f ", "__format_f64");
-      // compiler.build_format_string("%d ", "__format_i64");
-
-      // compiler.build_alloca(AnyTypeEnum::IntType(context.i32_type()), "tag");
-
-      let _ = match text {
+      let _ = match source {
         Ok(x) => compiler.from_source(&x),
         Err(_) => panic!("Bad file.")
       };
-      compiler.build_default_return();
+      // compiler.build_default_return();
 
-      // let ir = compiler.dump_ir();
+      if optimize {
+        compiler.optimize_ir();
+      }
       let _ = compiler.write_ir_to_file(&output);
-      // let mut file = File::create(output).expect("Unable to create file");
-      // file.write_all(ir.as_bytes()).expect("Unable to write data");
-      // compiler.build();
-
-      // let _ = runtime.dump_ir();
     },
-    // Some(Commands::Farnese {
-    //   input
-    // }) => {
-    //   println!("Reading script");
-    //   let text = fs::read_to_string(input);
-    //   let mut interp = Interpreter::new();
-    //   println!("Beginning AST construction");
-    //   let _ = match text {
-    //     Ok(x) => interp.from_source(&x),
-    //     Err(_) => panic!("Bad file.")
-    //   };
-    // },
-    // Some(Commands::Repl) => {
-    //   let _ = repl::repl();
-    // },
     _ => println!("Wtf")
   }
 }

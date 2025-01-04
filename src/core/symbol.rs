@@ -37,6 +37,10 @@ impl Symbol {
     hasher.finish()
   }
 
+  pub fn hash(&self) -> u64 {
+    self.hash
+  }
+
   pub fn name(&self) -> &str {
     &self.name
   }
@@ -113,5 +117,16 @@ impl UniqueSymbolGenerator {
     let id = self.counter.fetch_add(1, Ordering::Relaxed);
     let name = format!("{}{}", prefix, id);
     self.table.push(&name)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_symbol_new() {
+    let sym = Symbol::new("Any");
+    assert_eq!(sym.name(), "Any");
   }
 }
