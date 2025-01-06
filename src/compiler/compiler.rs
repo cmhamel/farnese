@@ -1,247 +1,289 @@
-use crate::compiler::Compile;
-use crate::core::any::create_any_type;
-use crate::core::datatype::create_type_tag;
-use crate::core::value::create_value_type;
-use crate::core::{AnyValue, Symbol, Variable, core};
-use crate::parser::ast::{Node, Operator, Primitive};
-use inkwell;
+
+use crate::core::{self, DataType, Symbol};
+use crate::parser::parser;
+use crate::parser::ast::Node;
+use super::Compile;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::module::{Module};
+use inkwell::module::{Linkage, Module};
 use inkwell::passes::PassManager;
-use inkwell::types::AnyTypeEnum;
-use inkwell::values::{AnyValueEnum, BasicValueEnum, FloatValue, IntValue, PointerValue};
+use inkwell::types::StructType;
+use inkwell::AddressSpace;
 #[cfg(feature = "interactive")]
 use spinners::{Spinner, Spinners};
-use std::cmp::Ordering;
 use std::collections::HashMap;
-// use std::ffi::CString;
+use std::ffi::CString;
 
-pub struct Compiler<'a> {
-  builder: Builder<'a>,
+pub struct Compiler<'a, 'b> {
+  builder: &'b Builder<'a>,
   context: &'a Context,
+  // core_module: Core<'a>,
   modules: HashMap<Symbol, Module<'a>>,
-  scope_sym_table: HashMap<Symbol, Variable<'a>>
-  // scope_sym_table: HashMap<Symbol, PointerValue<'a>>
+  // datatype_tag: StructType<'a>
 }
 
-impl<'a> Compiler<'a> {
-  pub fn new(context: &'a Context) -> Self {
-    // some types
-    let i32_type = context.i32_type();
-
-    // create builder
-    let builder = context.create_builder();
-
-    // let module = context.create_module("farnese");
-    #[cfg(feature = "interactive")]
-    let mut main_sp = Spinner::new(Spinners::Dots, "Precompiling Main...".into());
-
-    let main_module = context.create_module("Main");
-    let _ = main_module.add_global_metadata("module", &context.metadata_string("Main"));
-
-
-    // create the core module and link into main
-    #[cfg(feature = "interactive")]
-    let mut core_sp = Spinner::new(Spinners::Dots, "Precompiling Core...".into());
-
-    // let core_module = core::create_core(context);
-    let core_module = core::Core::new(context);
-    let type_tag = core_module.type_tag;
-    let value_type = core_module.value_type;
-    let any_type = core_module.any_type;
-
-    #[cfg(feature = "interactive")]
-    core_sp.stop_and_persist("\x1b[32m✔\x1b[0m", "Precompiled Core".into());
-
-    main_module.link_in_module(core_module.module.clone()).unwrap();
-
-    // things used to store symbols, types etc.
-    let scope_sym_table = HashMap::<Symbol, Variable<'a>>::new();
-
-    #[cfg(feature = "interactive")]
-    main_sp.stop_and_persist("\x1b[32m✔\x1b[0m", "Precompiled Main".into());
-
-    // Create the main function
-    // TODO figure out where to put this
-    let fn_type = i32_type.fn_type(&[], false);
-    let function = main_module.add_function("main", fn_type, None);
-    let basic_block = context.append_basic_block(function, "entry");
-    builder.position_at_end(basic_block);
-    let func = core_module.module.get_function("__Any__new").unwrap();
-    builder.build_call(func, &[], "__call__Any_new");
-    // main return statement with default 0
-    builder.build_return(Some(&i32_type.const_int(0, false)));
-
-    // create modules hashmap
+impl<'a, 'b> Compiler<'a, 'b> {
+  // public methods
+  pub fn new(context: &'a Context, builder: &'b Builder<'a>) -> Self {
     let mut modules = HashMap::<Symbol, Module<'a>>::new();
-    modules.insert(Symbol::new("Main"), main_module);
-    modules.insert(Symbol::new("Core"), core_module.module);
-        
-
-
-
+    // let datatype_tag = core::create_type_tag(context);
     Self {
       builder: builder,
       context: context,
-      // module: main_module,
       modules: modules,
-      scope_sym_table: scope_sym_table
+      // datatype_tag: datatype_tag
     }
   }
 
-  fn build_binary_operator(&mut self, op: Operator, lhs: AnyValueEnum<'a>, rhs: AnyValueEnum<'a>) -> AnyValueEnum<'a> {
-    match op {
-      Operator::Minus => match lhs {
-        AnyValueEnum::IntValue(x) => match rhs {
-          AnyValueEnum::IntValue(y) => {
-            AnyValueEnum::IntValue(self.builder.build_int_sub(x, y, "__binary_subtmp").unwrap())
-          }
-          _ => panic!("Unsupported operator combination")
-        },
-        _ => panic!("Unsupported primitive type in binary operation")
-      },
-      Operator::Plus => match lhs {
-        AnyValueEnum::IntValue(x) => match rhs {
-          AnyValueEnum::IntValue(y) => {
-            AnyValueEnum::IntValue(self.builder.build_int_add(x, y, "__binary_addtmp").unwrap())
-          }
-          _ => panic!("Unsupported operator combination")
-        },
-        _ => panic!("Unsupported primitive type in binary operation")
-      },
-      _ => panic!("Not supported operator")
-    }
+  pub fn create_core_module(&mut self) -> () {
+    #[cfg(feature = "interactive")]
+    let mut sp = Spinner::new(Spinners::Dots, "Precompiling Core...".into());
+    let module = self.context.create_module("Core");
+
+    // make datatype
+    let sym = Symbol::new("DataType");
+    let new_type = DataType::new(&sym, &sym, false, false, true);
+    let type_tag_type = self.context.opaque_struct_type("DataType");
+    type_tag_type.set_body(
+      &[
+        self.context.i8_type().ptr_type(AddressSpace::default()).into(),
+        type_tag_type.ptr_type(AddressSpace::default()).into()
+      ],
+      false,
+    );
+    let module = new_type.create_type(self.context, module.clone(), type_tag_type);
+
+    // make any type
+    let sym = Symbol::new("Any");
+    let any_type = DataType::new(&sym, &sym, true, false, false);
+    let module = any_type.create_type(
+      self.context, module.clone(), 
+      module.get_struct_type("DataType").unwrap()
+    );
+    let any_global = module.get_global("Any").unwrap();
+
+    // any constructor
+    let value_type = self.context.opaque_struct_type("Value");
+    value_type.set_body(
+      &[
+        self.context.i8_type().ptr_type(AddressSpace::default()).into(),
+        module.get_struct_type("DataType").unwrap().ptr_type(AddressSpace::default()).into()
+      ],
+      false
+    );
+    let fn_type = value_type.fn_type(&[
+        self.context.i8_type().ptr_type(AddressSpace::default()).into()
+      ], 
+      false
+    );
+    let function = module.add_function("__Any__new", fn_type, Some(Linkage::External));
+    let entry_block = self.context.append_basic_block(function, "entry");
+    self.builder.position_at_end(entry_block);
+    // Step 5: Allocate memory for the Value struct
+    let value_alloca = self.builder.build_alloca(value_type, "value_alloca").unwrap();
+    // Step 6: Get function argument (i8* value to store)
+    let input_value = function.get_nth_param(0).unwrap().into_pointer_value();
+    // Step 7: Store the i8* in the first field of the Value struct
+    let value_data_ptr = self.builder
+        .build_struct_gep(value_alloca, 0, "value_data_ptr")
+        .unwrap();
+    self.builder.build_store(value_data_ptr, input_value);
+    // Step 8: Store the "Any" type tag in the second field
+    let type_tag_ptr = self.builder
+        .build_struct_gep(value_alloca, 1, "type_tag_ptr")
+        .unwrap();
+    let any_type_value = any_global.as_pointer_value();
+    // let any_type_value = main_module.get_struct_type("Any").unwrap().as_pointer_value();
+    self.builder.build_store(type_tag_ptr, any_type_value);
+    // Step 9: Return the constructed Value
+    let loaded_value = self.builder.build_load(value_alloca, "loaded_value").unwrap();
+    self.builder.build_return(Some(&loaded_value));
+
+    // printf stuff
+    let i8_type = self.context.i8_type();
+    let i8_ptr_type = i8_type.ptr_type(inkwell::AddressSpace::default());
+    let printf_type = i8_ptr_type.fn_type(&[i8_ptr_type.into()], true);
+    let _ = module.add_function("printf", printf_type, Some(Linkage::External));
+
+    //
+    module.print_to_file("Core.ll");
+    // module.print_to_stderr();
+
+    self.modules.insert(Symbol::new("Core"), module);
+    #[cfg(feature = "interactive")]
+    sp.stop_and_persist("\x1b[32m✔\x1b[0m", "Precompiled Core".into());
+    // self.modules.insert(Symbol::new("Main"), main_module);
   }
 
-  pub fn build_default_return(&self) -> () {
-    let int = self.context.i32_type().const_int(0, false);
+  pub fn create_main_module(&mut self) -> Module<'a> {
+    #[cfg(feature = "interactive")]
+    let mut sp = Spinner::new(Spinners::Dots, "Precompiling Main...".into());
+    let core_module = self.modules.get(&Symbol::new("Core")).unwrap();
+    let main_module = self.context.create_module("Main");
+    let _ = main_module.add_function(
+      "__All__new", 
+      // core_module.get_function("__All__new").unwrap().get_type(), 
+      core_module.get_functions().next().unwrap().get_type(),
+      Some(Linkage::External)
+    );
+    let _ = main_module.add_function(
+      "printf", 
+      core_module.get_function("printf").unwrap().get_type(), 
+      Some(Linkage::External)
+    );
+    let _ = main_module.link_in_module(core_module.clone()).unwrap();
+
+    // trying something out
+    let any_global = main_module.get_global("Any").unwrap();
+
+    // Create the main function
+    // TODO figure out where to put this
+    let i32_type = self.context.i32_type();
+    let fn_type = i32_type.fn_type(&[], false);
+    let function = main_module.add_function("main", fn_type, None);
+    let basic_block = self.context.append_basic_block(function, "entry");
+    self.builder.position_at_end(basic_block);
+
+    // trying things out
+    // let int_value = self.context.i64_type().const_int(69, false);
+    let float_value = self.context.f64_type().const_float(69.0);
+    let float_value_ptr = self.builder.build_alloca(self.context.f64_type(), "int_value_ptr").unwrap();
+    self.builder.build_store(float_value_ptr, float_value);
+    let float_value_ptr_cast = self.builder
+      .build_bit_cast(float_value_ptr, self.context.i8_type().ptr_type(AddressSpace::default()), "int_value_ptr_cast")
+      .unwrap()
+      .into_pointer_value();
+    let any_new = main_module.get_function("__Any__new").unwrap();
+    let any_value = self.builder
+      .build_call(any_new, &[float_value_ptr_cast.into()], "__any__new")
+      .unwrap()
+      .try_as_basic_value()
+      .left()
+      .unwrap();
+
+    // TODO need to hook with parser to read in main method
+
+    // Create a format string for printf
+    let format_string = self.builder.build_global_string_ptr("%f\n", "format").unwrap();
+    self.builder.build_call(
+      // printf_func,
+      main_module.get_function("printf").unwrap(),
+      &[format_string.as_pointer_value().into(), float_value.into()],
+      "printf_call",
+    );
+
+    let int = i32_type.const_int(0, false);
     let _ = self.builder.build_return(Some(&int));
+
+    #[cfg(feature = "interactive")]
+    sp.stop_and_persist("\x1b[32m✔\x1b[0m", "Precompiled Main".into());
+    self.modules.insert(Symbol::new("Main"), main_module.clone());
+    main_module
   }
 
-  fn build_load(&mut self, sym: &Symbol, var: Variable<'a>) -> BasicValueEnum<'a> {
-    self.builder.build_load(*var.get_pointer(), sym.name()).unwrap()
+  pub fn from_source(&mut self, source: &str) -> () {
+    let ast: Vec<_> = parser::parse(source).unwrap();
+    self.from_ast(ast)
   }
 
-  fn build_module(&mut self, exprs: Node) -> Module<'a> {
-    match exprs {
-      Node::Module { name, exprs } => {
-        #[cfg(feature = "interactive")]
-        let mut sp = Spinner::new(Spinners::Dots, format!("Precompiling {}...", name.name()).into());
-        let module = self.context.create_module(name.name());
-        for expr in exprs {
-          self.from_ast_inner(*expr);
-        }
-        let main_module = self.modules.get(&Symbol::new("Main")).unwrap();
-        main_module.link_in_module(module.clone()).unwrap();
-        #[cfg(feature = "interactive")]
-        sp.stop_and_persist("\x1b[32m✔\x1b[0m", format!("Precompiled {}", name.name()).into());
+  pub fn link(&mut self) -> () {
+    let main_sym = Symbol::new("Main");
+    let main_module = self.create_main_module();
+    for (key, val) in (&self.modules).into_iter() {
+      #[cfg(feature = "interactive")]
+      let mut link_sp = Spinner::new(Spinners::Dots, format!("Linking {}...", key.name()).into());
+
+      main_module.link_in_module(val.clone());      
+
+      #[cfg(feature = "interactive")]
+      link_sp.stop_and_persist("\x1b[32m✔\x1b[0m", format!("Linked {} into Main", key.name()).into());
+    }
+
+    self.modules.insert(main_sym, main_module);
+  }
+
+  // private methods
+  fn create_expr_from_ast(&mut self, module: Module<'a>, ast: &Node) -> Module<'a> {
+    match ast {
+      Node::AbstractType { name, params, supertype } => {
+        let new_type = DataType::new(&name, &supertype, true, false, false);
+        new_type.create_type(
+          self.context, module.clone(), 
+          self.modules.get(&Symbol::new("Core")).unwrap().get_struct_type("DataType").unwrap()
+        )
+      }
+      Node::AssignmentExpr { identifier, value } => {
+        println!("iden = {:?}, val = {:?}", identifier, value);
         module
       },
-      _ => panic!("Bad node type in build_module")
-    }
-  }
-
-  fn build_pointer(&mut self, sym: &Symbol, val_type: AnyTypeEnum<'a>) -> PointerValue<'a> {
-    match val_type {
-      AnyTypeEnum::FloatType(t) => self.builder.build_alloca(t, sym.name()).unwrap(),
-      AnyTypeEnum::IntType(t) => self.builder.build_alloca(t, sym.name()).unwrap(),
-      _ => panic!("wtf")
-    }
-  }
-
-  fn build_primitive(&mut self, sym: Symbol, val: Primitive) -> Variable<'a> {
-    let (val_type, val): (AnyTypeEnum, BasicValueEnum) = match val {
-      Primitive::Char(x) => {
-        let val_type = self.context.i8_type();
-        (val_type.try_into().unwrap(), val_type.const_int((x as u8).into(), false).try_into().unwrap())
-      },
-      Primitive::Float(x) => {
-        let val_type = self.context.f64_type();
-        (val_type.try_into().unwrap(), val_type.const_float(x).try_into().unwrap())
-      },
-      Primitive::Int(x) => {
-        let val_type = self.context.i64_type();
-        (val_type.try_into().unwrap(), val_type.const_int(x as u64, true).try_into().unwrap())
+      Node::Empty => module,
+      Node::Primitive(x) => {
+        println!("Got a primitive {:?}", x);
+        module
       }
-    };
-
-
-    // try ing out general type stuff
-    let ptr = self.build_pointer(&sym, val_type);
-    let _ = self.build_store(ptr, val.into());
-    let var = Variable::new(val.get_type(), ptr, val.into());
-    // self.scope_sym_table.insert(sym, var.clone());
-    var
-  }
-
-  fn build_store(&mut self, ptr: PointerValue<'a>, val: AnyValueEnum) -> () {
-    let _ = match val {
-      AnyValueEnum::FloatValue(x) => self.builder.build_store::<FloatValue>(ptr, x),
-      AnyValueEnum::IntValue(x) => self.builder.build_store::<IntValue>(ptr, x),
-      _ => panic!("Not supported store.")
-    };
-  }
-
-  fn build_unary_operator(&mut self, op: Operator, child: AnyValueEnum<'a>) -> AnyValueEnum<'a> {
-    let expr: AnyValueEnum = match op {
-      Operator::Minus => match child {
-        AnyValueEnum::FloatValue(x) => {
-          let zero = x.get_type().const_float(0.0);
-          self.builder.build_float_sub(zero, x, "__unary_neg").unwrap().try_into().unwrap()
-        },
-        AnyValueEnum::IntValue(x) => {
-          let zero = x.get_type().const_int(0, true);
-          self.builder.build_int_sub(zero, x, "__unary_neg").unwrap().try_into().unwrap()
-        },
-        _ => panic!("Unsupported type in unary operator")
-      },
-      Operator::Plus => child,
-      _ => panic!("Unsupported operator in unary operator")
-    };
-    expr
-  }
-
-  pub fn clear_scope(&mut self) -> () {
-    self.scope_sym_table.clear();
-  }
-
-  fn evaluate_expr(&mut self, sym: Symbol, expr: Node) -> Variable<'a> {
-    match expr {
-      Node::BinaryExpr { op, lhs, rhs } => {
-        let lhs_sym = Symbol::new("__lhstmp");
-        let rhs_sym = Symbol::new("__rhstmp");
-        let lhs_expr = self.evaluate_expr(lhs_sym.clone(), *lhs);
-        let rhs_expr = self.evaluate_expr(rhs_sym.clone(), *rhs);
-        let binary_expr = self.build_binary_operator(op, *lhs_expr.get_value(), *rhs_expr.get_value());
-        let ptr = self.build_pointer(&sym, binary_expr.get_type());
-        let _ = self.build_store(ptr, binary_expr);
-        let var = Variable::new(binary_expr.get_type().try_into().unwrap(), ptr, binary_expr);
-        var
-      },
-      Node::ParenthesesExpr { expr } => self.evaluate_expr(sym, *expr),
-      Node::Primitive(x) => self.build_primitive(sym, x),
-      Node::Symbol(x) => {
-        let var = self.scope_sym_table.get(&x).unwrap().clone();
-        let _ = self.build_load(&sym, var.clone());
-        var
-      },
-      Node::UnaryExpr { op, child } => {
-        let child_sym = Symbol::new("__unarytmp");
-        let child_expr = self.evaluate_expr(child_sym.clone(), *child);
-        let unary_expr = self.build_unary_operator(op, *child_expr.get_value());
-        let ptr = self.build_pointer(&sym, unary_expr.get_type());
-        let _ = self.build_store(ptr, unary_expr);
-        let var = Variable::new(unary_expr.get_type().try_into().unwrap(), ptr, unary_expr);
-        var
+      Node::PrimitiveType { name, supertype, bits } => {
+        println!("Here");
+        let new_type = DataType::new(&name, &supertype, false, false, true);
+        new_type.create_type(
+          self.context, module.clone(), 
+          self.modules.get(&Symbol::new("Core")).unwrap().get_struct_type("DataType").unwrap()
+        )
       }
-      _ => panic!("Invalid expression type sym = {}, expr = {:?}", sym, expr)
+      // _ => println!("AST = {:?}", ast)
+      _ => panic!("Unsupported")
+    }
+    // module.clone()
+  }
+
+  fn create_module_from_ast(&mut self, ast: Node) -> () {
+    // println!("Node = {:?}", ast);
+
+    let core_module = self.modules.get(&Symbol::new("Core")).unwrap();
+
+    match ast {
+      Node::Module { ref name, ref exprs } => {
+        #[cfg(feature = "interactive")]
+        let mut sp = Spinner::new(Spinners::Dots, format!("Precompiling {}...", name.name()).into());
+        let mut module = self.context.create_module(name.name());
+        module.link_in_module(core_module.clone());      
+
+        for expr in exprs {
+          module = self.create_expr_from_ast(module.clone(), &expr);
+        }
+
+        module.print_to_stderr();
+        #[cfg(feature = "interactive")]
+        sp.stop_and_persist("\x1b[32m✔\x1b[0m", format!("Precompiled {}", name.name()).into());
+        module.print_to_file(format!("{}.ll", name.name()));
+        self.modules.insert(name.clone(), module);
+      },
+      _ => ()
     }
   }
 
+  fn from_ast(&mut self, ast: Vec<Node>) -> () {
+    // compile modules first
+    for node in ast {
+      let _ = self.module_from_ast(node);
+    }
+
+    // now we can compile other stuff
+  }
+
+  fn module_from_ast(&mut self, ast: Node) -> () {
+    match ast {
+      Node::Module { .. } => {
+        self.create_module_from_ast(ast);
+        println!("Got a module here")
+      },
+      _ => ()
+    }
+  }
+
+  // end result methods
   pub fn optimize_ir(&self) -> () {
     let module = self.modules.get(&Symbol::new("Main")).unwrap();
-    module.print_to_stderr();
+    // module.print_to_stderr();
     let fpm = PassManager::create(());
     // Add some optimization passes
     fpm.add_instruction_combining_pass();
@@ -253,101 +295,7 @@ impl<'a> Compiler<'a> {
     fpm.run_on(module);
   }  
 
-  pub fn write_ir_to_file(&self, file_name: &str) -> () {
+  pub fn write_ir_to_file(&self, file_name: &str, ) -> () {
     let _ = self.modules.get(&Symbol::new("Main")).unwrap().print_to_file(&file_name);
-  }
-}
-
-impl<'a> Compile for Compiler<'a> {
-  type Output = anyhow::Result<i32>; 
-
-  fn from_ast(&mut self, ast: Vec<Node>) -> () {
-    for node in ast {
-      let _ = self.from_ast_inner(node);
-    }
-  }
-
-  fn from_ast_inner(&mut self, ast: Node) -> () {
-    match ast {
-      Node::AssignmentExpr { identifier, value } => {
-        let expr = self.evaluate_expr(identifier.clone(), *value); 
-        self.scope_sym_table.insert(identifier, expr);
-      },
-      Node::Empty => (),
-      Node::ImportExpr { module, element } => {
-        let my_mod = self.modules.get(&module).unwrap();
-        let my_elem = my_mod.get_function(element.name()).unwrap();
-        // try import globals first
-        // let my_elem = match my_mod.get_global(element.name()) {
-        //   Some(x) => my_mod.get_global("Any").unwrap(),
-        //   // _ => ()
-        //   _ => Err(my_mod.get_global("Any").unwrap())
-        // };
-        // let my_glob = my_mod.get_global(element.name());
-        // let my_func = my_mod.get_function(element.name());
-        // let my_struct = my_mod.get_struct_type(element.name());
-        let main_mod = self.modules.get(&Symbol::new("Main")).unwrap();
-        
-        // match my_glob {
-        //   Some(x) => {
-        //     // main_mod.add_global(element.name(), my_glob.get_type(), None);
-        //     // main_mod.add_global(x, None, element.name());
-        //   },
-        //   _ => ()
-        // }
-        main_mod.add_function(element.name(), my_elem.get_type(), None);
-      },
-      Node::MethodCall { name, args } => {
-        // check for the few built in methods like print
-        match name.name().cmp("printf") {
-          Ordering::Equal => {
-            for arg in args {
-              match *arg {
-                Node::Symbol(x) => {
-                  let loaded_value = self.builder.build_load(
-                    // *self.scope_sym_table.get(&x).unwrap().get_pointer(),
-                    *self.scope_sym_table.get(&x).expect(format!("Variable not found {}", x).as_str()).get_pointer(),
-                    "__loaded_value"
-                  );
-
-                  // Call `printf` with the format string pointer and loaded value
-                  let printf = self.modules.get(&Symbol::new("Main")).unwrap().get_function("printf").unwrap();
-                  let zero = self.context.i32_type().const_int(0, false);
-
-                  // get the format string based on type
-                  let fmt_str = match loaded_value {
-                    Ok(BasicValueEnum::FloatValue(_x)) => self.modules.get(&Symbol::new("Main")).unwrap().get_global("__format_f64").unwrap(),
-                    Ok(BasicValueEnum::IntValue(_x)) => self.modules.get(&Symbol::new("Main")).unwrap().get_global("__format_i64").unwrap(),
-                    _ => panic!("unsupported type in get_format_string")
-                  };
-                  
-                  // now build the gep and call
-                  let format_string_ptr = unsafe {
-                    self.builder.build_gep(
-                        // self.module.get_global("format").unwrap().as_pointer_value(),
-                        fmt_str.as_pointer_value(),
-                        &[zero, zero],
-                        "format_ptr",
-                    )
-                  };
-                  let _ = self.builder.build_call(
-                    printf, 
-                    &[format_string_ptr.unwrap().into(), loaded_value.unwrap().into()], 
-                    "printf_call"
-                  );
-                },
-                _ => panic!("unsupported printf arg")
-              }
-            }
-          }
-          _ => panic!("Unsupported method call")
-        }
-      },
-      Node::Module { .. } => {
-        // self.build_module(ast);
-        println!("skipping building modules for now. Go to from_ast_inner to undo this");
-      },
-      _ => panic!("Not supported {:?}", ast)
-    }
   }
 }

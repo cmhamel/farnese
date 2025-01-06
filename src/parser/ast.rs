@@ -48,8 +48,7 @@ pub enum Node {
   AbstractType {
     name: core::Symbol,
     params: Box<Node>, 
-    // supertype: Box<Node>
-    // subtype: Box<Node>
+    supertype: core::Symbol,
   },
   AssignmentExpr {
     identifier: core::Symbol,
@@ -99,9 +98,9 @@ pub enum Node {
     supertype: core::Symbol,
     bits: u32
   },
-  // SubType {
-  //   name: core::Symbol
-  // },
+  SuperType {
+    expr: Box<Node>
+  },
   Symbol(core::Symbol),
   UnaryExpr {
     op: Operator,
@@ -113,7 +112,7 @@ pub enum Node {
 impl fmt::Display for Node {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
     match &self {
-      Node::AbstractType { name, params } => write!(f, "{} {}", name, params),
+      Node::AbstractType { name, params, supertype } => write!(f, "{} {} {}", name, params, supertype),
       Node::AssignmentExpr { identifier, value } => write!(f, "{} = {}", identifier, value),
       // Node::AbstractType { name, params, subtype } => write!(f, "{} {:?} {}", name, params, subtype),
       Node::BinaryExpr { op, lhs, rhs } => write!(f, "{} {} {}", lhs, op, rhs),
@@ -143,6 +142,7 @@ impl fmt::Display for Node {
       Node::ParenthesesExpr { expr } => write!(f, "{:?}", expr),
       Node::Primitive(_p) => write!(f, ""),
       Node::PrimitiveType { name, supertype, bits } => write!(f, "{} <: {} {}", name.to_ir(), supertype, bits),
+      Node::SuperType { expr } => write!(f, "{}", expr),
       Node::Symbol(name) => write!(f, "{}", name),
       Node::UnaryExpr { op, child } => write!(f, "{}{}", op, child),
       Node::UsingExpr(name) => write!(f, "{}", name),

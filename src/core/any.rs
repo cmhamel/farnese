@@ -1,11 +1,9 @@
-use super::datatype::create_type_tag;
-use super::value::create_value_type;
 use super::Symbol;
 use inkwell::context::Context;
 use inkwell::builder::Builder;
 use inkwell::module::Module;
-use inkwell::types::{IntType, PointerType, StructType};
-use inkwell::values::{GlobalValue, PointerValue, IntValue};
+use inkwell::types::StructType;
+use inkwell::values::GlobalValue;
 use inkwell::AddressSpace;
 
 
@@ -38,10 +36,10 @@ impl<'a> AnyValue {
     // TODO make this read in
     let value_in_val = context.i32_type().const_int(42, false);
     let value_in = builder.build_alloca(value_in_val.get_type(), "__valuein").unwrap();
-    builder.build_store(value_in, value_in_val);
+    let _ = builder.build_store(value_in, value_in_val);
     let value_in_ptr = builder.build_alloca(context.i8_type().ptr_type(AddressSpace::default()), "__ref__valuein").unwrap();
     let casted_ptr = builder.build_bit_cast(value_in, context.i8_type().ptr_type(AddressSpace::default()), "casted_ptr").unwrap();
-    builder.build_store(value_in_ptr, casted_ptr);
+    let _ = builder.build_store(value_in_ptr, casted_ptr);
 
     // works below
     // let value_type = create_value_type(context, type_tag);
@@ -55,7 +53,7 @@ impl<'a> AnyValue {
     let type_ptr = unsafe {
       builder.build_gep(value, &[ptr_index, ptr_index], "__typeptr")
     }.unwrap();
-    builder.build_store(type_ptr, any_type);
+    let _ = builder.build_store(type_ptr, any_type);
 
     // // now build a load
     // builder.build_load(value, "__anyvalue");

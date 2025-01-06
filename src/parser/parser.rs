@@ -29,24 +29,28 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
         .skip(1)
         .collect();
       let mut generics = Node::Generics { params: Vec::<Node>::new() };
-      // let mut supertype = Node::SubType { name: Symbol::new("Any") };
-      // let mut supertype = Node::Parameter { name: }
+      let mut supertype = Node::Symbol(Symbol::new("Any"));
       if !extras.is_empty() {
         let _ = create_ast(extras[0].clone());
         for extra in extras {
           match extra.as_rule() {
             Rule::Generics => generics = create_ast(extra),
-            // Rule::SubType => println!("subtype"),
+            Rule::SubType => supertype = create_ast(extra),
             // Rule::SubType => supertype = create_ast(extra),
             _ => ()
           };
         }
       }
 
+      let supertype_sym = match supertype {
+        Node::Symbol(x) => x,
+        _ => panic!("wtf"),
+      };
+
       Node::AbstractType {
         name: Symbol::new(name.as_str()),
         params: Box::new(generics),
-        // supertype: Box::new(supertype)
+        supertype: supertype_sym
       }
     },
     Rule::AssignmentExpr => {
@@ -71,6 +75,13 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
     Rule::Comment => Node::Empty,
     Rule::EOI => Node::Empty,
     Rule::Expr => create_ast(pair.into_inner().next().unwrap()),
+    Rule::Function => {
+      println!("Pair = {:?}", pair);
+      let mut terms = pair.into_inner();
+      let name = create_ast(terms.next().unwrap());
+      println!("Func name {:?}", name);
+      Node::Empty
+    }
     // Rule::Function => {
     //   let params: Vec<_> = pair.into_inner().collect();
     //   let name = Symbol::new(params[0].as_str());
@@ -147,17 +158,13 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       Node::MethodCall { name: name, args: args }
     },
     Rule::Module => {
-      // let exprs: Vec<_> = pair.into_inner().collect();
       let name = Symbol::new(pair.clone().into_inner().next().unwrap().as_str());
       let exprs: Vec<_> = pair.into_inner().skip(1).collect();
-      // println!("Module = {}", name);
       let mut asts = Vec::<Box<Node>>::new();
       for expr in exprs {
         let ast = create_ast(expr);
         asts.push(Box::new(ast))
       }
-      // panic!("pair = {:?}", pair)
-      // panic!()
       Node::Module { name: name, exprs: asts }
     }
     // Rule::Parameter => {
@@ -208,32 +215,10 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let prim_type = Node::PrimitiveType{ name: name, supertype: supertype, bits: bits };
       prim_type
     },
-    // Rule::SubType => {
-    //   println!("Subtype = {:?}", pair);
-    //   let subtype = pair.into_inner();
-    //   let mut name = String::new();
-    //   let mut generics = Node::Generics { params: Vec::<Node>::new() };
-    //   for param in subtype {
-    //     println!("param = {:?}", param);
-    //     match param.as_rule() {
-    //       Rule::Generics => generics = create_ast(param),
-    //       Rule::Identifier => name = param.as_str().to_string(),
-    //       _ => ()
-    //     };
-    //   }
-    //   println!("name = {:?}", name);
-    //   // Node::Eoi
-    //   let name = Symbol::new(&name);
-    //   let ret_type = Parameter { 
-    //     name: name, 
-    //     supertype: Some(Box::new(
-    //       Parameter { 
-    //         name: Symbol::new("Any"), 
-    //         supertype: None 
-    //       }
-    //     ))};
-    //   Node::Parameter(ret_type)
-    // },
+    Rule::SubType => {
+      let subtype = pair.into_inner().next().unwrap();
+      create_ast(subtype)
+    }
     Rule::UnaryExpr => {
       let terms: Vec<_> = pair.into_inner().collect();
       let op = match terms[0].as_str() {

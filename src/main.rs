@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use farnese::compiler::{Compile, Compiler};
+use farnese::compiler::Compiler;
 use inkwell::context::Context;
 use std::fs;
 
@@ -36,13 +36,22 @@ fn main() {
     Some(Commands::Compiler { input, output, optimize }) => {
       let source = fs::read_to_string(input);
       let context = Context::create();
-      let mut compiler = Compiler::new(&context);
+      let builder = context.create_builder();
+      let mut compiler = Compiler::new(&context, &builder);
+
+      // todo could probably move this somewhere else
+      // need to compile a few core things first
+      compiler.create_core_module();
+      compiler.create_main_module();
 
       let _ = match source {
         Ok(x) => compiler.from_source(&x),
         Err(_) => panic!("Bad file.")
       };
-      // compiler.build_default_return();
+      // // compiler.build_default_return();
+
+      // link everything to main module
+      compiler.link();
 
       if optimize {
         compiler.optimize_ir();
