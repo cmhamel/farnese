@@ -1,147 +1,79 @@
-use super::Symbol;
-use inkwell::context::Context;
+use crate::core::Symbol;
 use inkwell::module::Module;
-use inkwell::types::StructType;
 use inkwell::AddressSpace;
 
-// main type that hold onto alot of things in core
-// memory layout
-// DataType = { i8* DataType* }
 
 #[derive(Clone, Debug)]
 // pub struct DataType<'a> {
 pub struct DataType {
   name: Symbol,
   supertype: Symbol,
-  is_abstract: bool,
-  is_mutable: bool,
-  is_primitive: bool,
+  // is_abstract: bool,
+  // is_mutable: bool,
+  // is_primitive: bool,
   // struct_type: StructType<'a>
 }
 
-impl DataType {
-  pub fn new(
-    name: &Symbol, supertype: &Symbol,
-    is_abstract: bool, is_mutable: bool, is_primitive: bool,
-    // struct_type: StructType<'a>
-  ) -> Self {
-    Self {
-      name: name.clone(),
-      supertype: supertype.clone(),
-      is_abstract: is_abstract,
-      is_mutable: is_mutable,
-      is_primitive: is_primitive,
-      // struct_type: struct_type
-    }
-  }
+impl<'a, 'b> DataType {
+  pub fn new(name: Symbol, supertype: Symbol, module: &'b Module<'a>) -> Self {
+    let datatype_opaque = module.get_struct_type("DataType").unwrap();
+    let context = module.get_context();
+    let builder = context.create_builder();
 
-  // getters
-  pub fn hash_id(&self) -> u64 { self.name.hash() }
-  pub fn is_abstract(&self) -> bool { self.is_abstract }
-  pub fn is_mutable(&self) -> bool { self.is_mutable }
-  pub fn is_primitive(&self) -> bool { self.is_primitive }
-  pub fn name(&self) -> &str { &self.name.name() }
-  pub fn supertype(&self) -> &str { &self.supertype.name() }
-
-  // main method to create the tyep for llvm ir
-  // pub fn create_type_old<'a>(&self, context: &'a Context, module: Module<'a>, type_tag_type: StructType<'a>) -> Module<'a> {
-  //   let type_name = context.const_string(self.name().as_bytes(), false);
-  //   let type_name_global = module.add_global(type_name.get_type(), None, format!("__{}", self.name()).as_str());
-  //   type_name_global.set_initializer(&type_name);
-
-  //   let super_type_tag = module.get_global(self.supertype.name()).unwrap();
-  //   let initializer = type_tag_type
-  //     .const_named_struct(&[
-  //       context.i8_type().ptr_type(AddressSpace::default()).const_null().into(),
-  //       super_type_tag.as_pointer_value().into(), // Parent: points to itself
-  //     ]);
-  //   let type_tag = module.add_global(type_tag_type, None, self.name.name());
-  //   type_tag.set_initializer(&initializer);
-
-  //   module.clone()
-  // }
-
-  pub fn create_type<'a>(&self, context: &'a Context, module: Module<'a>, type_tag: StructType<'a>) -> Module<'a> {
-    let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
-
-    // try to add the type
-    match module.get_global(self.name()) {
-      Some(_) => panic!("Type already exists"),
-      _ => ()
-    }
-    // let type_tag = self.create_datatype_tag(context);
-    let new_type = module.add_global(type_tag, None, self.name());
-    
-    let parent_type = match module.get_global(self.supertype()) {
-      None => panic!("Supertype not found"),
-      Some(x) => x
-    };
-
-
-    new_type.set_initializer(&type_tag.const_named_struct(&[
-      i8_ptr_type.const_null().into(),
-      parent_type.as_pointer_value().into(), // Parent: points to itself
+    // add type name as a global in this module
+    let datatype = module.add_global(datatype_opaque, None, name.name()); 
+    println!("Supertype = {:?}", supertype);
+    let supertype_glob = module.get_global(supertype.name()).unwrap();
+    let _ = datatype.set_initializer(&datatype_opaque.const_named_struct(&[
+      context.i8_type().ptr_type(AddressSpace::default()).const_null().into(),
+      supertype_glob.as_pointer_value().into(),
+      context.i64_type().ptr_type(AddressSpace::default()).const_null().into(),
     ]));
 
-    // let type_tag_type = context.opaque_struct_type("DataType");
-    // type_tag_type.set_body(
-    //   &[
-    //     context.i8_type().ptr_type(AddressSpace::default()).into(),
-    //     type_tag_type.ptr_type(AddressSpace::default()).into()
-    //   ],
-    //   false,
-    // );
+    // Self::init(module);
+    Self {
+      name: name,
+      supertype: supertype
+    }
 
-    // module.print_to_stderr();
-    // module.print_to_file("datatype.ll");
-    module.clone()
+    // temp.init(module);
+    // temp
+    // Self {
+    //   name: name
+    // }
   }
 
-  // pub fn create_datatype_tag<'a>(&self, context: &'a Context) -> StructType<'a> {
-  //   let type_tag_type = context.opaque_struct_type("DataType");
-  //   type_tag_type.set_body(
-  //     &[
-  //       context.i8_type().ptr_type(AddressSpace::default()).into(),
-  //       type_tag_type.ptr_type(AddressSpace::default()).into()
-  //     ],
-  //     false,
-  //   );
-  //   type_tag_type
-  // }
-}
+  pub fn init(&self, module: &'b Module<'a>) -> () {
+    let context = module.get_context();
+    let builder = context.create_builder();
+    let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
+    let datatype_opaque = module
+      .get_struct_type("DataType")
+      .unwrap();
+    let fn_type = datatype_opaque.fn_type(&[
+      i8_ptr_type.into()
+    ], false);
+    let function = module.add_function(format!("{}__new", self.name()).as_str(), fn_type, None);
+    let basic_block = context.append_basic_block(function, "entry");
+    builder.position_at_end(basic_block);
+    let sym = context.const_string(self.name().as_bytes(), true);
+    let sym_glob = module.add_global(sym.get_type(), None, format!("__Sym__{}", self.name()).as_str());
+    sym_glob.set_initializer(&sym);
+    let val = builder.build_alloca(datatype_opaque, "__ptr").unwrap();
+    let ptr = builder.build_struct_gep(val, 0, "__name").unwrap();
 
+    let string_ptr = unsafe { builder.build_in_bounds_gep(
+      sym_glob.as_pointer_value(),
+      &[context.i32_type().const_zero(), context.i32_type().const_zero()],
+      "string_ptr",
+    ).unwrap() };
+    let _ = builder.build_store(ptr, string_ptr);
 
-// helper method probably only called once or twice maybe?
-// pub fn create_type_tag<'a>(context: &'a Context) -> StructType<'a> {
-//   let type_tag_type = context.opaque_struct_type("DataType");
-//   type_tag_type.set_body(
-//     &[
-//       context.i8_type().ptr_type(AddressSpace::default()).into(),
-//       type_tag_type.ptr_type(AddressSpace::default()).into()
-//     ],
-//     false,
-//   );
-//   type_tag_type
-// }
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_datatype_new() {
-    let sym = Symbol::new("Any");
-    let any = DataType::new(&sym, &sym, true, false, false);
-    assert_eq!(any.name(), "Any");
-    assert_eq!(any.is_abstract(), true);
-    assert_eq!(any.is_mutable(), false);
-    assert_eq!(any.is_primitive(), false);
-    // assert_eq!(any.supertype(), sym);
+    // let _ = builder.build_store(ptr, sym_glob.as_pointer_value());
+    let val = builder.build_load(val, "__val").unwrap();
+    let _ = builder.build_return(Some(&val));
   }
 
-  #[test]
-  fn test_create_type_tag() {
-    let context = Context::create();
-    let type_tag = create_type_tag(&context);
-  }
+  pub fn name(&self) -> &str { &self.name.name() }
+  // pub fn supertype(&self) -> &str { &self.supertype.name() }
 }

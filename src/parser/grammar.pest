@@ -7,6 +7,7 @@ KEYWORD = @{
   "import" |
   "module" |
   "primitive" |
+  "struct" |
   "type" |
   "using"
 }
@@ -26,7 +27,9 @@ Exprs = _{ (Expr ~ NEWLINE*)+ }
 
 Expr = { 
   Comment |
+  MainFunction |
   Module |
+  StructType |
   ImportExpr |
   UsingExpr |
   UnaryExpr |
@@ -42,24 +45,30 @@ Expr = {
 }
 
 // different code block types
+MainFunction = { "function main()" ~ FunctionExprs ~ "end" }
 Module = { "module" ~ Identifier ~ (Expr | NEWLINE)* ~ "end" }
 ImportExpr = { "import" ~ Identifier ~ "." ~ Identifier ~ NEWLINE }
 UsingExpr = { "using" ~ Identifier ~ NEWLINE }
-AbstractType = { "abstract type" ~ Identifier ~ Generics? ~ SubType? ~ "end" }
-PrimitiveType = { "primitive type" ~ Identifier ~ PrimitiveSubType? ~ PrimitiveBits ~ "end" }
+AbstractType = { "abstract type" ~ Identifier ~ Generics? ~ SuperType? ~ "end" }
+PrimitiveType = { "primitive type" ~ Identifier ~ PrimitiveSuperType? ~ PrimitiveBits ~ "end" }
 Function = { "function" ~ Identifier ~ Generics? ~ FunctionArgs? ~ FunctionExprs ~ "end" }
 MethodCall = { Identifier ~ FunctionArgs }
 
+// typedef stuff
+StructType = { "struct" ~ Identifier ~ (StructField | NEWLINE)* ~ "end" }
+StructField = { Identifier ~ ("::" ~ Identifier ~ Generics?)? }
+
 // common parsing stuff
 Generics = { "{" ~ Parameter* ~ "}" }
-Parameter = { Identifier ~ SubType? ~ ","? }
-SubType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier ~ Generics? }
+Parameter = { Identifier ~ SuperType? ~ ","? }
+SuperType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier ~ Generics? }
 PrimitiveBits = @{ ASCII_DIGIT* }
-PrimitiveSubType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier }
+PrimitiveSuperType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier }
 FunctionArgs = { "(" ~ FunctionArg* ~ ")" }
 FunctionArg = { Identifier ~ "," ? }
 FunctionExprs = { FunctionExpr* }
 FunctionExpr = {
+  Comment |
   AssignmentExpr |
   BinaryExpr |
   UnaryExpr |

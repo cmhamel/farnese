@@ -1,14 +1,10 @@
 use crate::core::Symbol;
+use crate::parser::{FarneseParser, Rule};
 use super::ast::{Node, Operator, Primitive};
-use pest::{self, Parser};
-
-#[derive(pest_derive::Parser)]
-#[grammar = "./parser/grammar.pest"]
-struct FarneseParser;
 
 pub fn parse(source: &str) -> std::result::Result<Vec<Node>, pest::error::Error<Rule>> {
   let mut ast = vec![];
-  let pairs = FarneseParser::parse(Rule::Program, source)?;
+  let pairs = FarneseParser::from_source(source);
   
   for pair in pairs {
     let ast_temp = create_ast(pair);
@@ -20,37 +16,29 @@ pub fn parse(source: &str) -> std::result::Result<Vec<Node>, pest::error::Error<
 fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
   let ast: Node = match pair.as_rule() {
     Rule::AbstractType => {
-      let name = pair.clone()
-        .into_inner()
-        .next()
-        .unwrap();
-      let extras: Vec<_> = pair
-        .into_inner()
-        .skip(1)
-        .collect();
+      let exprs: Vec<_> = pair.into_inner().collect();
+      let mut name = Symbol::new("HOWTFDIDTHISHAPPEN");
       let mut generics = Node::Generics { params: Vec::<Node>::new() };
       let mut supertype = Node::Symbol(Symbol::new("Any"));
-      if !extras.is_empty() {
-        let _ = create_ast(extras[0].clone());
-        for extra in extras {
-          match extra.as_rule() {
-            Rule::Generics => generics = create_ast(extra),
-            Rule::SubType => supertype = create_ast(extra),
-            // Rule::SubType => supertype = create_ast(extra),
-            _ => ()
-          };
+      for expr in exprs {
+        let ast = create_ast(expr.clone());
+        match ast {
+          Node::Generics { params: _ } => generics = ast,
+          Node::SuperType { expr: x } => supertype = *x,
+          Node::Symbol(x) => name = x,
+          _ => todo!("unsupported {:?}", ast)
         }
       }
 
       let supertype_sym = match supertype {
-        Node::Symbol(x) => x,
-        _ => panic!("wtf"),
+        Node::Symbol(ref x) => x,
+        _ => todo!("x = {:?}", supertype),
       };
 
       Node::AbstractType {
-        name: Symbol::new(name.as_str()),
+        name: name,
         params: Box::new(generics),
-        supertype: supertype_sym
+        supertype: supertype_sym.clone()
       }
     },
     Rule::AssignmentExpr => {
@@ -72,16 +60,16 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let rhs = create_ast(terms[2].clone());
       Node::BinaryExpr { op: op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
     },
-    Rule::Comment => Node::Empty,
-    Rule::EOI => Node::Empty,
+    Rule::Comment => Node::Comment,
+    Rule::EOI => Node::Eoi,
     Rule::Expr => create_ast(pair.into_inner().next().unwrap()),
-    Rule::Function => {
-      println!("Pair = {:?}", pair);
-      let mut terms = pair.into_inner();
-      let name = create_ast(terms.next().unwrap());
-      println!("Func name {:?}", name);
-      Node::Empty
-    }
+    // Rule::Function => {
+    //   println!("Pair = {:?}", pair);
+    //   let mut terms = pair.into_inner();
+    //   let name = create_ast(terms.next().unwrap());
+    //   println!("Func name {:?}", name);
+    //   Node::Empty
+    // }
     // Rule::Function => {
     //   let params: Vec<_> = pair.into_inner().collect();
     //   let name = Symbol::new(params[0].as_str());
@@ -119,25 +107,29 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
     //   Node::Function { name: name, args: args, body: Box::new(body) }
     //   // Node::Eoi
     // },
-    Rule::FunctionArg => {
-      let name: Vec<_> = pair.into_inner().collect();
-      let name = Symbol::new(name[0].as_str());
-      Node::Symbol(name)
-    },
-    Rule::FunctionExpr => {
-      let temp: Vec<_> = pair.into_inner().collect();
-      create_ast(temp[0].clone())
-    }
-    // todo fix this later
-    // Rule::Generics => {
-    //   let params = pair.into_inner();
-    //   let mut new_params = Vec::<Node>::new();
-    //   for param in params {
-    //     let temp = create_ast(param);
-    //     new_params.push(temp);
-    //   }
-    //   Node::Generics { params: new_params }
+    // Rule::FunctionArg => {
+    //   let name: Vec<_> = pair.into_inner().collect();
+    //   let name = Symbol::new(name[0].as_str());
+    //   Node::Symbol(name)
     // },
+    // Rule::FunctionExpr => {
+    //   let temp: Vec<_> = pair.into_inner().collect();
+    //   if temp.len() > 0 {
+    //     create_ast(temp[0].clone())
+    //   } else {
+    //     Node::Empty
+    //   }
+    // }
+    // todo fix this later
+    Rule::Generics => {
+      let params = pair.into_inner();
+      let mut new_params = Vec::<Node>::new();
+      for param in params {
+        let temp = create_ast(param);
+        new_params.push(temp);
+      }
+      Node::Generics { params: new_params }
+    },
     Rule::Identifier => {
       let name = Symbol::new(pair.as_str());
       Node::Symbol(name)
@@ -147,6 +139,16 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let element = pair.clone().into_inner().skip(1).next().unwrap().as_str();
       Node::ImportExpr { module: Symbol::new(module), element: Symbol::new(element) }
     },
+    Rule::MainFunction => {
+      let exprs = pair.into_inner().next().unwrap();
+      let mut asts = Vec::<Box<Node>>::new();
+
+      for expr in exprs.into_inner() {
+        let ast = create_ast(expr);
+        asts.push(Box::new(ast));
+      }
+      Node::MainFunction { exprs: asts }
+    }
     Rule::MethodCall => {
       let params: Vec<_> = pair.into_inner().collect();
       let name = Symbol::new(params[0].as_str());
@@ -166,27 +168,12 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
         asts.push(Box::new(ast))
       }
       Node::Module { name: name, exprs: asts }
+    },
+    Rule::Parameter => {
+      let exprs: Vec<_> = pair.into_inner().collect();
+      assert!(exprs.len() == 1, "Bad parameter encountered");
+      Node::Symbol(Symbol::new(exprs[0].as_str()))
     }
-    // Rule::Parameter => {
-    //   let params = pair.into_inner();
-    //   let mut name = String::new();
-    //   // let mut subtype = "Any".to_string();
-    //   let mut subtype: Node = Node::Empty;
-    //   for param in params {
-    //     match param.as_rule() {
-    //       Rule::Identifier => name = param.as_str().to_string(),
-    //       // Rule::SubType => subtype = param.as_str().to_string(),
-    //       Rule::SubType => subtype = create_ast(param),
-    //       _ => ()
-    //     };
-    //   };
-    //   let name = Symbol::new(&name);
-    //   // let subtype = Symbol::new(&subtype);
-    //   let ret_type = Parameter { name: name, supertype: Some(Box::new(Parameter { name: Symbol::new("Any"), supertype: None }))};
-    //   // Node::Parameter { name: name, subtype: subtype }
-    //   println!("Ret type = {:?}", ret_type);
-    //   Node::Parameter(ret_type)
-    // },
     Rule::ParenthesesExpr => {
       let params: Vec<_> = pair.into_inner().collect();
       Node::ParenthesesExpr { expr: Box::new(create_ast(params[0].clone())) }
@@ -208,16 +195,59 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       for extra in extras.iter() {
         match extra.as_rule() {
           Rule::PrimitiveBits => bits = extra.as_str().parse::<u32>().unwrap(),
-          Rule::PrimitiveSubType => supertype = Symbol::new(extra.clone().into_inner().as_str()),
+          Rule::PrimitiveSuperType => supertype = Symbol::new(extra.clone().into_inner().as_str()),
           _ => ()
         };
       }
       let prim_type = Node::PrimitiveType{ name: name, supertype: supertype, bits: bits };
       prim_type
     },
-    Rule::SubType => {
-      let subtype = pair.into_inner().next().unwrap();
-      create_ast(subtype)
+    // Rule::StructField => {
+    //   let exprs: Vec<_> = pair.into_inner().collect();
+    //   let mut name = Symbol::new("HOWTFDIDTHISHAPPEN");
+    //   // let mut field_type = Node;
+
+    // }
+    Rule::StructField => {
+      println!("Struct field = {:?}", pair);
+      let exprs: Vec<_> = pair.into_inner().collect();
+      let name = Symbol::new(exprs[0].as_str());
+      // todo, currently generics don't do anything
+      let generics = Vec::<Box<Node>>::new();
+      let supertype = Box::new(Node::Symbol(Symbol::new("Any")));
+      Node::FieldType { 
+        name: name, 
+        generics: generics,
+        supertype: supertype
+      }
+      // panic!()
+    }
+    Rule::StructType => {
+      let exprs: Vec<_> = pair.into_inner().collect();
+      let mut name = Symbol::new("HOWTFDIDTHISHAPPEN");
+      let mut generics = Vec::<Box<Node>>::new();
+      let mut supertype = Symbol::new("Any");
+      let mut fields = Vec::<Box<Node>>::new();
+
+      // }
+      for expr in exprs {
+        let ast = create_ast(expr);
+        match ast {
+          Node::FieldType { .. } => fields.push(Box::new(ast)),
+          Node::Symbol(x) => name = x,
+          _ => todo!("Not supported yet {:?}", ast)
+        }
+      }
+      Node::StructType { 
+        name: name, 
+        generics: generics, 
+        supertype: supertype, 
+        fields: fields 
+      }
+    }
+    Rule::SuperType => {
+      let exprs: Vec<_> = pair.into_inner().collect();
+      Node::SuperType { expr: Box::new(create_ast(exprs[0].clone())) }
     }
     Rule::UnaryExpr => {
       let terms: Vec<_> = pair.into_inner().collect();
@@ -229,11 +259,6 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let val = create_ast(terms[1].clone());
       Node::UnaryExpr { op: op, child: Box::new(val) }
     },
-    Rule::UsingExpr => {
-      println!("Here for using, time to link");
-      
-      Node::Empty
-    }
     _ => todo!("todo {:?}", pair.as_rule())
   };
   ast
