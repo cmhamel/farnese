@@ -22,6 +22,7 @@ impl Symbol {
     }
   }
 
+  /// creates a new symbol from a String
   pub fn from_string(name: String) -> Self {
     let hash = Self::hash_name(&name);
     Self {
@@ -37,19 +38,18 @@ impl Symbol {
     hasher.finish()
   }
 
+  /// gets the hash TODO chanage to get_hash
   pub fn hash(&self) -> u64 {
     self.hash
   }
 
+  /// gets the name TODO change to get_name
   pub fn name(&self) -> &str {
     &self.name
   }
-
-  pub fn to_ir(&self) -> String {
-    format!("{}__{}", self.name, self.hash)
-  }
 }
 
+///
 impl Display for Symbol {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     write!(f, ":{}\n", self.name)

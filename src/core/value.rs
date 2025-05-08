@@ -1,155 +1,167 @@
-use super::DataType;
+use super::symbol::Symbol;
 use inkwell::builder::Builder;
-use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::StructType;
+use inkwell::values::{BasicValueEnum, PointerValue};
 use inkwell::AddressSpace;
 
-// sets up a type that is { i8* Type* } where 
-// Type = { i8* Type* }
-pub fn create_value_type<'a>(context: &'a Context, type_tag: StructType<'a>) -> StructType<'a> {
-  // let value_sym = Symbol::new("Value"); // eventually w'ell use this
-  let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
-  let value_type = context.opaque_struct_type("Value");
-  value_type.set_body(&[
-    i8_ptr_type.into(), // value
-    type_tag.ptr_type(AddressSpace::default()).into()
-  ], false);
-  value_type
+pub enum ValueTypes {
+  Float(f64),
+  Int(i64)
 }
 
-pub struct Value<T> {
-  value: T,
-  data_type: DataType
+impl From<i64> for ValueTypes {
+  fn from(value: i64) -> Self {
+    ValueTypes::Int(value)
+  }
 }
 
-impl<T> Value<T> {
-  pub fn new(value: T, data_type: DataType) -> Self {
+impl From<f64> for ValueTypes {
+  fn from(value: f64) -> Self {
+    ValueTypes::Float(value)
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct Value<'a> {
+  val: PointerValue<'a>
+}
+
+impl<'a, 'b> Value<'a> {
+  pub fn new(
+    value: ValueTypes, type_name: &Symbol, 
+    module: &'b Module<'a>, builder: &'b Builder<'a>
+  ) -> Self {
+    // setup
+    let context = module.get_context();
+    // let builder = context.create_builder();
+
+    // helpers
+    let i64_ptr_type = context.i64_type().ptr_type(AddressSpace::default());
+    let datatype_opaque = module.get_struct_type("DataType").unwrap();
+    let val_type = context.struct_type(&[
+      i64_ptr_type.into(), 
+      datatype_opaque.ptr_type(AddressSpace::default()).into()
+    ], false);
+
+    // allocate Val memory
+    let val = builder.build_alloca(val_type, "").unwrap();
+
+    // allocate memory for val
+    let val_alloca = match value {
+      // ValueTypes::Float(x) => println!("hur"),
+      ValueTypes::Float(x) => {
+        let temp = context.f64_type().const_float(x.try_into().unwrap());
+        let ptr = builder.build_alloca(context.f64_type(), "").unwrap();
+        let _ = builder.build_store(ptr, temp);
+        ptr
+      },
+      ValueTypes::Int(x) => {
+        let temp = context.i64_type().const_int(x.try_into().unwrap(), true);
+        let ptr = builder.build_alloca(context.i64_type(), "").unwrap();
+        let _ = builder.build_store(ptr, temp);
+        ptr
+      }
+    };
+
+    let val_ptr = builder.build_struct_gep(val, 0, "").unwrap();
+    let _ = builder.build_store(val_ptr, val_alloca);
+
+    let type_ptr = builder.build_struct_gep(val, 1, "").unwrap();
+    let _ = builder.build_store(type_ptr, module.get_global(type_name.name()).unwrap());
+
+    // let val = module.add_global(value_opaque, None, format!("Val__{}", type_name.name()).as_str());
+    // let _ = val.set_initializer(&value_opaque.const_named_struct(&[
+    //   context.i64_type().ptr_type(AddressSpace::default()).const_null().into(),
+    //   // datatype.as_pointer_value().into()
+    //   module.get_global(type_name.name()).unwrap().as_pointer_value().into()
+    // ]));
+
     Self {
-      value: value,
-      data_type: data_type
+      val: val
     }
   }
 
-  pub fn create_constructor<'a>(
-    &self, 
-    context: &'a Context, module: Module<'a>, 
-    type_tag: StructType<'a>
-  ) -> Module<'a> {
-    let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
-    let any_type = module.get_global("Any").unwrap();
-    // let value_type = module.get_global("Value").unwrap();
-    // value_type.set_initializer(&type_tag.const_named_struct(&[
-    //   i8_ptr_type.const_null().into(),
-    //   any_type.as_pointer_value().into(),
-    // ]));
-    // let value_type = context.struct_type(&[
-    //   i8_ptr_type.into(), // value
-    //   type_tag.ptr_type(AddressSpace::default()).into()
-    // ], false);
-    module.clone()
+  pub fn get_ptr(&self) -> &PointerValue<'a> {
+    &self.val
   }
 
-  pub fn create_type<'a>(&self, context: &'a Context, module: Module<'a>, data_type: StructType<'a>) -> Module<'a> {
-    let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
+  // below methods only need to be called once
+  pub fn typeof_func(&self, module: &'b Module<'a>) -> BasicValueEnum<'a> {
+    // setup
+    let context = module.get_context();
     let builder = context.create_builder();
-    // let value_type = self.create_datatype_tag(context, module.clone(), type_tag);
-    // let any_type = module.get_global("Any").unwrap();
-    // todo need to check if type exists...
 
-    // let value = value_type.const_named_struct(&[
-    //   i8_ptr_type.const_null().into(),
-    //   // type_tag.as_pointer_value().into()
-    //   any_type.as_pointer_value().into()
-    // ]);
-    // any_type.set_initializer(&value);
-
-    let value_type = context.struct_type(&[
-      i8_ptr_type.into(), // value
-      data_type.ptr_type(AddressSpace::default()).into()
+    // helpers
+    let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
+    let i64_ptr_type = context.i64_type().ptr_type(AddressSpace::default());
+    let datatype_opaque = module.get_struct_type("DataType").unwrap();
+    let val_type = context.struct_type(&[
+      i64_ptr_type.into(), 
+      datatype_opaque.ptr_type(AddressSpace::default()).into()
     ], false);
-    let value_ptr_type = value_type.ptr_type(AddressSpace::default());
-    let fn_type = value_ptr_type.fn_type(&[
-      i8_ptr_type.into(), 
-      data_type.ptr_type(AddressSpace::default()).into()
+
+    let func = i8_ptr_type.fn_type(&[
+      val_type.ptr_type(AddressSpace::default()).into()
     ], false);
-    let function = module.add_function("__Value__constructor", fn_type, None);
-    let entry = context.append_basic_block(function, "entry");
-    builder.position_at_end(entry);
-    // Allocate space for the Value struct
-    let value_ptr = builder.build_alloca(value_type, "__value_ptr").unwrap();
+    let func = module.add_function("typeof", func, None);
+    let basic_block = context.append_basic_block(func, "entry");
+    builder.position_at_end(basic_block);
 
-    // Store the i8* data
-    let data_param = function.get_nth_param(0).unwrap().into_pointer_value();
-    let data_field_ptr = unsafe {
-        builder.build_struct_gep(value_ptr, 0, "__data_ptr").unwrap()
-    };
-    builder.build_store(data_field_ptr, data_param);
+    let struct_ptr = func.get_first_param().unwrap().into_pointer_value();
+    let type_ptr = builder
+      .build_struct_gep(struct_ptr, 1, "")
+      .unwrap();
+    let type_ptr = builder.build_load(type_ptr, "").unwrap();
+    let t = builder.build_call(
+      module.get_function("typeof_inner").unwrap(),
+      &[type_ptr.into()],
+      ""
+    ).unwrap().try_as_basic_value().left().unwrap();
+    println!("T = {:?}", t);
+    // let int = context.i32_type().const_int(0, false);
+    let _ = builder.build_return(Some(&t));
 
-    // Store the %DataType* pointer
-    let type_param = function.get_nth_param(1).unwrap().into_pointer_value();
-    let type_field_ptr = unsafe {
-        builder.build_struct_gep(value_ptr, 1, "__type_ptr_ptr").unwrap()
-    };
-    builder.build_store(type_field_ptr, type_param);
-
-    // Return the constructed Value pointer
-    builder.build_return(Some(&value_ptr));
-    module.clone()
+    t
   }
 
-  pub fn create_value<'a, 'b>(&self, context: &'a Context, builder: &'b Builder, module: Module<'a>, data_type: StructType<'a>) -> Module<'a> {
+  pub fn value_func(&self, module: &'b Module<'a>) -> BasicValueEnum<'a> {
+    // setup
+    let context = module.get_context();
+    let builder = context.create_builder();
+
+    // helpers
     let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
-    let i32_type = context.i32_type();
-    // let builder = context.create_builder();
-    let value_struct = context.struct_type(
-      &[
-        i8_ptr_type.into(),
-        data_type.ptr_type(AddressSpace::default()).into(),
-      ],
-      false,
-    );
-    // Allocate space for a `Value` instance
-    let value_alloca = builder.build_alloca(value_struct, "value").unwrap();
-
-    // Initialize the `i8*` field with a pointer to an integer
-    let int_value = i32_type.const_int(69, false); // todo
-    let int_ptr = builder.build_alloca(i32_type, "int_ptr").unwrap();
-    builder.build_store(int_ptr, int_value);
-    let int_i8_ptr = builder.build_bit_cast(int_ptr, i8_ptr_type, "int_i8_ptr");
-
-    // Set the `i8*` field of `Value`
-    let value_data_ptr = unsafe {
-        builder.build_struct_gep(value_alloca, 0, "value_data_ptr").unwrap()
-    };
-    builder.build_store(value_data_ptr, int_i8_ptr.unwrap());
-
-    // Set the `%DataType*` field to null
-    let value_type_ptr = unsafe {
-        builder.build_struct_gep(value_alloca, 1, "value_type_ptr").unwrap()
-    };
-    builder.build_store(value_type_ptr, data_type.ptr_type(AddressSpace::default()).const_null());
-
-    // todo remove me
-    // let _ = builder.build_return(Some(&i32_type.const_int(0, false)));
-
-    module.clone()
-  }
-
-  pub fn create_datatype_tag<'a>(&self, context: &'a Context, module: Module<'a>, type_tag: StructType<'a>) -> StructType<'a> {
-    let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
-    let value_type = context.opaque_struct_type("Value");
-    // let value_type = context.opaque_struct_type("Value");
-    value_type.set_body(&[
-      i8_ptr_type.into(), // value
-      type_tag.ptr_type(AddressSpace::default()).into()
+    let i64_ptr_type = context.i64_type().ptr_type(AddressSpace::default());
+    let datatype_opaque = module.get_struct_type("DataType").unwrap();
+    let val_type = context.struct_type(&[
+      i64_ptr_type.into(), 
+      datatype_opaque.ptr_type(AddressSpace::default()).into()
     ], false);
-    // let value_type = context.struct_type(&[
-    //   i8_ptr_type.into(), // value
-    //   type_tag.ptr_type(AddressSpace::default()).into()
-    // ], false);
-    // let value_type_global = module.add_global(value_type, None, "Value");
-    // module.clone()
-    value_type
+
+    let func = i64_ptr_type.fn_type(&[
+      val_type.ptr_type(AddressSpace::default()).into()
+    ], false);
+    let func = module.add_function("value", func, None);
+    let basic_block = context.append_basic_block(func, "entry");
+    builder.position_at_end(basic_block);
+
+    let struct_ptr = func.get_first_param().unwrap().into_pointer_value();
+    let val_ptr = builder
+      .build_struct_gep(struct_ptr, 0, "")
+      .unwrap();
+    let val_ptr = builder.build_load(val_ptr, "").unwrap();
+    
+    // val_ptr.into()
+    // let type_ptr = builder.build_load(type_ptr, "").unwrap();
+    // let t = builder.build_call(
+    //   module.get_function("typeof_inner").unwrap(),
+    //   &[type_ptr.into()],
+    //   ""
+    // ).unwrap().try_as_basic_value().left().unwrap();
+    // println!("T = {:?}", t);
+    // // let int = context.i32_type().const_int(0, false);
+    let _ = builder.build_return(Some(&val_ptr));
+
+    val_ptr.into()
   }
 }

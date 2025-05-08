@@ -4,6 +4,7 @@ WHITESPACE = _{ " " | "\t" }
 KEYWORD = @{ 
   "abstract" | 
   "end" |
+  "function" |
   "import" |
   "module" |
   "primitive" |
