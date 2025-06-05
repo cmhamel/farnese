@@ -1,20 +1,23 @@
 //WHITESPACE = _{ " " | "\t" | NEWLINE }
 WHITESPACE = _{ " " | "\t" }
 
-KEYWORD = @{ 
-  "abstract" | 
+KEYWORD = _{ 
+  "abstract type" | 
   "end" |
   "function" |
   "import" |
   "module" |
-  "primitive" |
+  "primitive type" |
   "struct" |
-  "type" |
   "using"
 }
 alpha = { 'a'..'z' | 'A'..'Z' }
 alpha_num = { 'a'..'z' | 'A'..'Z' | '0'..'9' }
-Identifier = @{ !KEYWORD ~ (alpha | "_") ~ alpha_num* }
+
+//Identifier = @{ !KEYWORD ~ (alpha | "_") ~ alpha_num* }
+
+RawIdentifier = @{ (alpha | "_") ~ alpha_num* }
+Identifier = @{ !KEYWORD ~ RawIdentifier }
 
 Program = _{ 
   SOI ~ 
@@ -28,7 +31,7 @@ Exprs = _{ (Expr ~ NEWLINE*)+ }
 
 Expr = { 
   Comment |
-  MainFunction |
+  //MainFunction |
   Module |
   StructType |
   ImportExpr |
@@ -46,27 +49,28 @@ Expr = {
 }
 
 // different code block types
-MainFunction = { "function main()" ~ FunctionExprs ~ "end" }
+//MainFunction = { "function main()" ~ Exprs ~ "end" }
 Module = { "module" ~ Identifier ~ (Expr | NEWLINE)* ~ "end" }
 ImportExpr = { "import" ~ Identifier ~ "." ~ Identifier ~ NEWLINE }
 UsingExpr = { "using" ~ Identifier ~ NEWLINE }
 AbstractType = { "abstract type" ~ Identifier ~ Generics? ~ SuperType? ~ "end" }
 PrimitiveType = { "primitive type" ~ Identifier ~ PrimitiveSuperType? ~ PrimitiveBits ~ "end" }
-Function = { "function" ~ Identifier ~ Generics? ~ FunctionArgs? ~ FunctionExprs ~ "end" }
+Function = { "function" ~ Identifier ~ Generics? ~ FunctionArgs? ~ FunctionReturnType? ~ FunctionExprs ~ "end" }
 MethodCall = { Identifier ~ FunctionArgs }
 
 // typedef stuff
-StructType = { "struct" ~ Identifier ~ (StructField | NEWLINE)* ~ "end" }
+StructType = { "struct" ~ Identifier ~ Generics? ~ SuperType? ~ (StructField | NEWLINE)* ~ "end" }
 StructField = { Identifier ~ ("::" ~ Identifier ~ Generics?)? }
 
 // common parsing stuff
-Generics = { "{" ~ Parameter* ~ "}" }
-Parameter = { Identifier ~ SuperType? ~ ","? }
+Generics = { "{" ~ Generic* ~ "}" }
+Generic = { Identifier ~ SuperType? ~ ","? }
 SuperType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier ~ Generics? }
 PrimitiveBits = @{ ASCII_DIGIT* }
 PrimitiveSuperType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier }
 FunctionArgs = { "(" ~ FunctionArg* ~ ")" }
-FunctionArg = { Identifier ~ "," ? }
+//FunctionArg = { Identifier ~ "," ? }
+FunctionArg = { (Identifier ~ ("::" ~ Identifier ~ Generics?)?) ~ "," ? }
 FunctionExprs = { FunctionExpr* }
 FunctionExpr = {
   Comment |
@@ -77,7 +81,7 @@ FunctionExpr = {
   Identifier |
   NEWLINE
 }
-
+FunctionReturnType = { "::" ~ Identifier }
 
 // expression
 ExprTerm = _{ 

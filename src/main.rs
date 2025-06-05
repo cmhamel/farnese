@@ -1,9 +1,8 @@
 use clap::{Parser, Subcommand};
 use farnese::compiler::Compiler;
-use farnese::core::{Core, Symbol};
-use farnese::core::main::create_main;
+use farnese::core::Module;
+use farnese_lexer::lexer::lexer;
 use inkwell::context::Context;
-use inkwell::module::Module;
 use inkwell::passes::PassManager;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetTriple};
 use inkwell::targets::InitializationConfig;
@@ -19,6 +18,11 @@ struct CLIArgs {
 
 #[derive(Clone, Debug, Subcommand)]
 enum Commands {
+  #[command(about = "ast")]
+  Ast {
+    #[arg(long, short, value_name = "FARNESE FILE")]
+    input: String
+  },
   #[command(about = "Compiler")]
   Compiler {
     #[arg(long, short, value_name = "FARNESE FILE")]
@@ -27,17 +31,10 @@ enum Commands {
     output: String,
     #[arg(long, value_name = "OPTIMIZE")]
     optimize: bool,
-  },
-  #[command(about = "Read script")]
-  Farnese {
-    #[arg(long, short, value_name = "FILE")]
-    input: String
-  },
-  #[command(about = "Start the repl")]
-  Repl
+  }
 }
 
-pub fn optimize_ir<'a, 'b>(module: &'b Module<'a>) -> () {
+pub fn optimize_ir<'a>(module: &Module<'a>) -> () {
   // let module = self.modules.get(&Symbol::new("Main")).unwrap();
   // module.print_to_stderr();
   let fpm = PassManager::create(());
@@ -48,70 +45,35 @@ pub fn optimize_ir<'a, 'b>(module: &'b Module<'a>) -> () {
   fpm.add_cfg_simplification_pass();
   fpm.add_basic_alias_analysis_pass();
   // run optimization passes
-  fpm.run_on(module);
+  fpm.run_on(&module.module);
 }
 
 fn main() {
   let args = CLIArgs::parse();
   match args.command {
-    Some(Commands::Compiler { input, output: _, optimize }) => {
+    Some(Commands::Ast { input }) => {
+      let source = fs::read_to_string(input)
+        .expect("Failed reading file");
+      let asts: Vec<_> = lexer::parse(&source).unwrap();
+      println!("Dumping ASTs\n\n");
+      for ast in asts.iter() {
+        println!("{}", ast);
+      }
+    },
+    Some(Commands::Compiler { input, output, optimize }) => {
       let source = fs::read_to_string(input)
         .expect("Failed reading file");
       let context = Context::create();
-      let builder = context.create_builder();
 
-      // let ast = lexer::parse(&source);
-      let mut core = Core::new(&context);
-      let _ = core.bootstrap();
-      let _ = core.module().print_to_file("Core.ll");
-      
-      let mut compiler = Compiler::new(&context, &builder);
-      compiler.insert_module(Symbol::new("Core"), core.module());
-      // include base
-      // compiler.include("base/base.jl", &main_module);
+      let mut compiler = Compiler::new(&context);
 
-      // creating main module here for now.
-      let main_module = context.create_module("Main");
-      // main_module.link_in_module(core.module())
-      //   .expect("Failed to link Core into Main");
-      // println!("Linked core into main");
-      let base_source = fs::read_to_string("src/base/base.jl").unwrap();
-      compiler.include(&base_source, &main_module);
+      let mut main_module = Module::new(&context, "Main");
+      compiler.insert_module("Main", main_module.clone());
+      // compiler.main_func_begin(&main_module);
+      compiler.include(&mut main_module, &source);
+      // compiler.main_func_end(&main_module);
 
-      // TODO need to include all modules before main is created
-      for (name, module) in compiler.modules() {
-        println!("Name = {:?}", name);
-        if *name == Symbol::new("Main") {
-          println!("Hur")
-        }
-
-        if *name == Symbol::new("Core") {
-          continue
-        }
-        let _ = main_module.link_in_module(module.clone())
-          .expect(format!("Failed to linke {} into Main", name.name()).as_str());
-      }
-
-      let _ = create_main(&context, &builder, &main_module, &compiler.modules());
-
-      // try to include this file
-      compiler.include(&source, &main_module);
-
-      
-
-      let int = context.i32_type().const_int(0, false);
-      let _ = builder.build_return(Some(&int));
-
-
-      // for (name, module) in compiler.modules() {
-      //   if name.name() == "Core" {
-      //     continue
-      //   } else {
-      //     main_module.link_in_module(module.clone())
-      //       .expect(format!("Failed to link {} into Main", name.name()).as_str())
-      //   }
-      // }
-      
+      // TODO move elsewhere
       if optimize {
         optimize_ir(&main_module);
 
@@ -156,7 +118,8 @@ fn main() {
 
       }
 
-      let _ = main_module.print_to_file("Main.ll");
+      // let _ = main_module.print_to_file("Main.ll");
+      let _ = main_module.print_to_file(&output);
     },
     _ => println!("Wtf")
   }

@@ -1,277 +1,356 @@
-use crate::core::{DataType, Symbol};
-use crate::lexer::ast::{Node, Operator, Primitive};
-use crate::lexer::lexer;
+use crate::core::{
+  Core, 
+  DataType, 
+  LLVMPrintf,
+  LLVMValue,
+  MethodHelper,
+  Module, 
+  Primitive,
+  Symbol
+};
+use farnese_lexer::lexer::ast::{Node, Operator};
+use farnese_lexer::lexer::lexer;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::module::Module;
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, PointerValue};
-use inkwell::AddressSpace;
+use inkwell::types::BasicMetadataTypeEnum;
+use inkwell::values::BasicMetadataValueEnum;
 use std::collections::HashMap;
 
-pub struct Compiler<'a, 'b> {
-  builder: &'b Builder<'a>,
-  context: &'a Context,
-  modules: HashMap<Symbol, Module<'a>>,
-  pub scope_variables: HashMap<Symbol, PointerValue<'a>>,
-  value_stack: Vec<PointerValue<'a>>
+/// a table of modules
+type Modules<'a> = HashMap<Symbol, Module<'a>>;
+/// scope
+type Scope<'a> = HashMap<Symbol, (Value<'a>, DataType)>;
+/// a stack of LLVM values
+type Stack<'a> = Vec<(Value<'a>, DataType)>;
+/// basic value type
+type Value<'a> = BasicMetadataValueEnum<'a>;
+
+pub struct Compiler<'a> {
+  modules: Modules<'a>,
+  scope: Scope<'a>,
+  stack: Stack<'a>
 }
 
-impl<'a, 'b> Compiler<'a, 'b> {
-  pub fn new(context: &'a Context, builder: &'b Builder<'a>) -> Self {
-    let modules = HashMap::<Symbol, Module<'a>>::new();
-    let scope_variables = HashMap::<Symbol, PointerValue<'a>>::new();
-    let value_stack = Vec::<PointerValue<'a>>::new();
+impl<'a> Compiler<'a> {
+  pub fn new(context: &'a Context) -> Self {
+    let mut modules = Modules::<'a>::new();
+    let scope = Scope::<'a>::new();
+    let stack = Stack::<'a>::new();
+
+    // setup core
+    let mut core = Core::new(&context);
+    let core_module = core.bootstrap();
+    let _ = core_module.print_to_file("Core.ll");
+    modules.insert(Symbol::new("Core"), core_module);
+
     Self {
-      builder: builder,
-      context: context,
       modules: modules,
-      scope_variables: scope_variables,
-      value_stack: value_stack,
+      scope: scope,
+      stack: stack
     }
   }
 
-  pub fn include(&mut self, file_name: &str, module: &'b Module<'a>) -> () {
-    let ast: Vec<_> = lexer::parse(file_name).unwrap();
-    for node in ast {
-      match node {
-        Node::Module { name, exprs } => {
-          self.compile_module(name, exprs)
+  fn compile_binary_expr<'b>(
+    &mut self,
+    builder: &'b Builder<'a>,
+    module: &mut Module<'a>,
+    op: Operator, 
+    lhs: Node, rhs: Node
+  ) {
+    self.compile_expr(builder, module, lhs);
+    self.compile_expr(builder, module, rhs);
+    let (rhs, _rhs_type) = self.stack.pop().unwrap();
+    let (lhs, lhs_type) = self.stack.pop().unwrap();
+
+    // let result: BasicValueEnum<'a> = match lhs {
+    let result: (Value<'a>, DataType) = match lhs {
+      Value::IntValue(x) => match rhs {
+        Value::IntValue(y) => match op {
+          Operator::Minus => (
+            Value::IntValue(builder.build_int_sub(x, y, "").unwrap()),
+            lhs_type
+          ),
+          Operator::Plus => (
+            Value::IntValue(builder.build_int_add(x, y, "").unwrap()),
+            lhs_type
+          ),
+          _ => todo!("Unsupported op {:?}", op)
         },
-        _ => self.compile_expr(node, module)
+        _ => todo!("Types don't match")
       }
-    }
-
-    // println!("Value stack = {:?}", self.value_stack);
-    // println!("Scope variables = {:?}", self.scope_variables);
-  }
-
-  // fn any_type_to_basic_type(&self, in_type: AnyTypeEnum<'a>) -> BasicTypeEnum<'a> {
-  //   match in_type {
-  //     AnyTypeEnum::FloatType(x) => BasicTypeEnum::FloatType(x),
-  //     AnyTypeEnum::IntType(x) => BasicTypeEnum::IntType(x),
-  //     _ => todo!("Not a basic type {:?}", in_type)
-  //   }
-  // }
-
-  fn compiler_binary_expr(
-    &mut self, op: Operator, 
-    lhs: Node, rhs: Node,
-    module: &Module<'a>
-  ) -> () {
-    let i64_type = self.context.i64_type();
-    // println!("lhs top = {:?}", lhs);
-    self.compile_expr(lhs.clone(), module);
-    self.compile_expr(rhs, module);
-    let rhs_ptr = self.value_stack.pop().unwrap();
-    let lhs_ptr = self.value_stack.pop().unwrap();
-    // println!("lhs = mid = {:?}", lhs);
-    // let val = self.compiler_binary_expr(op, lhs, rhs);
-    let lhs_val = self.builder.build_load(lhs_ptr, "__load").unwrap();
-    let rhs_val = self.builder.build_load(rhs_ptr, "__load").unwrap();
-
-    // println!("rhs_val = {:?}", rhs_val);
-
-    let result = if lhs_val.get_type() == rhs_val.get_type() {
-      // println!("lhs type = {:?}", lhs.get_type());
-      match op {
-        // Operator::Minus => {
-          
-        // },
-        Operator::Plus => {
-          match lhs_val {
-            // BasicValueEnum::FloatValue(x) => println!("float value = {:?}", x),
-            BasicValueEnum::IntValue(x) => {
-              self.builder.build_int_add(x, rhs_val.into_int_value(), "addtmp")
-            },
-            _ => todo!("wtf {:?}", lhs_val)
-          }
-        },
-        _ => todo!("op not yet implement {:?}", op)
-      }
-    } else {
-      panic!("Different type binary op not supported yet {:?} {:?}", op, lhs_val)
+      _ => todo!("Not supported yet")
     };
-
-    // alloc and store result
-    let result_ptr = self.builder.build_alloca(i64_type, "__binary_res").unwrap();
-    let _ = self.builder.build_store(result_ptr, result.unwrap());
-
-    self.value_stack.push(result_ptr);
+    self.stack.push(result);
   }
 
-  fn compile_unary_expr(
-    &mut self, op: Operator,
-    child: Node,
-    module: &Module<'a>
-  ) -> () {
-    let i64_type = self.context.i64_type();
-
-    self.compile_expr(child, module);
-    let child_ptr = self.value_stack.pop().unwrap();
-    let child_val = self.builder.build_load(child_ptr, "__load").unwrap();
-    let result: BasicValueEnum = match op {
-      Operator::Minus => {
-        match child_val {
-          BasicValueEnum::IntValue(x) => {
-            self.builder.build_int_neg(x, "__neg").unwrap().into()
-          },
-          _ => todo!("Value type no implemented yet")
-        }
-      },
-      Operator::Plus => {
-        child_val
-      },
-      _ => panic!("This op {:?} should never be called as unary", op)
-    };
-
-    let result_ptr = self.builder.build_alloca(i64_type, "__unary_res").unwrap();
-    let _ = self.builder.build_store(result_ptr, result);
-
-    self.value_stack.push(result_ptr);
-  }
-
-  fn compile_expr(&mut self, expr: Node, module: &Module<'a>) -> () {
-    // let i8_ptr_type = self.context.i8_type().ptr_type(AddressSpace::default());
-    let f64_type = self.context.f64_type();
-    let i64_type = self.context.i64_type();
-    // let f64_ptr_type = f64_type.ptr_type(AddressSpace::default());
-    // let i64_ptr_type = i64_type.ptr_type(AddressSpace::default());
-
+  fn compile_expr<'b>(&mut self, builder: &'b Builder<'a>, module: &mut Module<'a>, expr: Node) {
     match expr {
-      Node::AbstractType { name, params: _, supertype } => {
-        let _ = DataType::new(name, supertype, module);
-        // datatype.create_new_type(module);
-        // datatype.create_new_val(module);
+      Node::AbstractType { name, supertype } => {
+        let datatype = DataType::new_abstract_type(
+          &name, &supertype
+        );
+        module.insert_type(datatype);
       },
       Node::AssignmentExpr { identifier, value } => {
-        self.compile_expr(*value, module);
-        let prev_val_ptr = self.value_stack.pop().unwrap();
-        // let prev_val = self.builder.build_load(prev_val_ptr, "__load__assignment");
-        self.scope_variables.insert(identifier, prev_val_ptr);
+        self.compile_expr(&builder, module, *value);
+        let prev_val_ptr = self.stack.pop().unwrap();
+
+        self.scope.insert(
+          Symbol::new(&identifier), 
+          prev_val_ptr
+        );
       },
       Node::BinaryExpr { op, lhs, rhs } => {
-        self.compiler_binary_expr(op, *lhs, *rhs, module)
+        self.compile_binary_expr(&builder, module, op, *lhs, *rhs)
       },
-      Node::Comment => {},
-      Node::Eoi => {},
+      Node::Empty => {
+        // do nothing
+      },
+      Node::Function { name, args, return_type, body } => {
+        self.compile_function(module, &name, &args, &return_type, &body)
+      },
       Node::MethodCall { name, args } => {
         // lots of things to do here
         // need to check if methods exist
         // pass by reference vs. pass by value
         // ensure method exists in vtable (which we haven't even thought of yet)
-
-        let mut syms = Vec::<Symbol>::new();
-        for arg in args {
-          match *arg {
-            Node::Symbol(x) => syms.push(x),
-            _ => panic!("not supported currently")
-          }
-        }
-        let args: Vec<_> = syms
-          .iter()
-          .map(|x| {
-            let var = self.scope_variables.get(x).unwrap();
-            self.builder.build_load(*var, "load_method_arg").unwrap()
-          })
-          .collect();
-        let mut converted_args: Vec<BasicMetadataValueEnum> = args
-          .into_iter()
-          .map(|ptr| ptr.into())  // Convert each PointerValue to BasicMetadataValueEnum
-          .collect();
-        
-        // special case just to help us boot strap things
-        // maybe move this to core somehow
-        // todo
-        if name.name() == "printf" {
-          println!("Got printf");
-          // adding a format string in front
-          let format_string = self.context.const_string(b"%d\n\0", false);
-          let ptr = self.builder.build_alloca(format_string.get_type(), "__str").unwrap();
-          let _ = self.builder.build_store(ptr, format_string);
-          // do I need the one below TODO?
-          let _ptr_i8 = self.builder.build_alloca(
-            self.context.i8_type().ptr_type(AddressSpace::default()), 
-            "__str_i8_cast"
-          ).unwrap();
-          let gep_ptr = unsafe { self.builder.build_in_bounds_gep(ptr, &[
-            self.context.i32_type().const_zero(),
-            self.context.i32_type().const_zero(),
-          ], "__gep_ptr").unwrap() };
-          converted_args.insert(0, gep_ptr.into());
-        }
-
-        // let func = module.get_function(name.name()).unwrap();
-        let _ = self.builder.build_call(
-          module.get_function(name.name()).unwrap(),
-          &converted_args,
-          format!("__call__{}", name.name()).as_str()
-        );
+        self.compile_method_call(&builder, module, &name, args)
       },
       Node::ParenthesesExpr { expr } => {
-        self.compile_expr(*expr, module);
+        self.compile_expr(&builder, module, *expr);
       }
       Node::Primitive(x) => {
-        match x {
-          Primitive::Char(_y) => {
-            panic!("Need to implement char")
-          },
-          Primitive::Float(y) => {
-            let val = f64_type.const_float(y.try_into().unwrap());
-            let ptr = self.builder.build_alloca(f64_type, "__float64_ptr").unwrap();
-            let _ = self.builder.build_store(ptr, val);
-            self.value_stack.push(ptr);
-            // let ptr_i8 = self.builder.build_alloca(i8_ptr_type, "__float64_i8_cast_ptr").unwrap();
-            // let casted_ptr = self.builder.build_bit_cast(ptr_i8, i8_ptr_type, "__casted_ptr").unwrap();
-            // let _ = self.builder.build_store(ptr_i8, casted_ptr);
-          },
-          Primitive::Int(y) => {
-            let val = i64_type.const_int(y.try_into().unwrap(), true);
-            let ptr = self.builder.build_alloca(i64_type, "__int_ptr").unwrap();
-            let _ = self.builder.build_store(ptr, val);
-            self.value_stack.push(ptr);
-            // let ptr_i8 = self.builder.build_alloca(i8_ptr_type, "__int_i8_cast_ptr").unwrap();
-            // let casted_ptr = self.builder.build_bit_cast(ptr_i8, i8_ptr_type, "__casted_ptr").unwrap();
-            // let _ = self.builder.build_store(ptr_i8, casted_ptr);
-          }
-        }
+        let x: Primitive = x.into();
+        // let ptr = x.emit_ir_alloca(&builder, module);
+        // self.value_stack.push(ptr.try_into().unwrap());
+        let val = x.emit_ir_value(module);
+        let datatype = x.get_datatype();
+        self.stack.push((val.into(), datatype));
       },
-      Node::PrimitiveType { name, supertype, bits: _ } => {
-        let _ = DataType::new(name, supertype, module);
+      Node::PrimitiveType { name, supertype, bits } => {
+        let datatype = DataType::new_primitive_type(&name, &supertype, bits);
+        module.insert_type(datatype);
       },
-      Node::StructType { name, generics: _, supertype, fields: _ } => {
-        let _ = DataType::new(name, supertype, module);
+      Node::StructType { name, supertype, field_names, field_types } => {
+        // hack for now TODO refactor this
+        let field_names = field_names
+          .iter()
+          .map(|x| Symbol::new(x))
+          .collect::<Vec<_>>();
+        let field_types = Box::new(field_types
+          .iter()
+          .map(|x| module.get_type(x).clone())
+          .collect()
+        );
+        let datatype = DataType::new(
+          Symbol::new(&name), Symbol::new(&supertype), 
+          false, false, false, 
+          field_names, field_types
+        );
+        module.insert_type(datatype);
       },
       Node::Symbol(x) => {
-        let val = self.scope_variables.get(&x)
-          .expect("Symbol not found");
-        self.value_stack.push(*val);
+        let val = self.scope.get(&Symbol::new(&x))
+          .expect(format!("Symbol not found: {}", x).as_str());
+        self.stack.push(val.clone());
       },
-      Node::UnaryExpr { op, child } => {
-        self.compile_unary_expr(op, *child, module);
-      },
-      _ => todo!("Unsupported type {:?}", expr)
+      // Node::UnaryExpr { op, child } => {
+      //   self.compile_unary_expr(builder, module, op, *child);
+      // },
+      _ => todo!("Unsupported type {}", expr)
     }
   }
 
-  fn compile_module(&mut self, name: Symbol, exprs: Vec<Box<Node>>) -> () {
-    // println!("Ast = {:?}", exprs)
-    let module = self.context.create_module(name.name());
-    // link in core
-    // module.link_in_module(core.module())
-    module.link_in_module(self.modules.get(&Symbol::new("Core")).unwrap().clone())
-      .expect("Failed to link Core into Main");
+  fn compile_function<'b>(
+    &mut self,
+    module: &mut Module<'a>,
+    name: &str, 
+    args: &Vec<Node>, return_type: &str, 
+    body: &Box<Vec<Node>>
+  ) {
+    // let builder = module.get_builder();
+    let context = module.get_context();
+    let builder = context.create_builder(); 
+
+    // handle main as a special case
+    if name == "main" {
+      let return_type = context.i32_type();
+      let func = return_type.fn_type(&[], false);
+      let func = module.add_function(&name, func, None);
+      let entry = context.append_basic_block(func, "entry");
+      builder.position_at_end(entry);
+      for expr in (*body).iter() {
+        self.compile_expr(&builder, module, expr.clone())
+      }
+      let return_val = return_type.const_int(0, false);
+      let _ = builder.build_return(Some(&return_val));
+      return
+    }
+
+    let mut arg_names = Vec::<Symbol>::new();
+    let mut arg_types = Vec::<DataType>::new();
+    let _ = args
+      .iter()
+      .map(|arg| match arg {
+        Node::FunctionArg { name, arg_type } => {
+          arg_names.push(Symbol::new(name));
+          arg_types.push(module.get_type(arg_type).clone());
+        },
+        _ => panic!("Shouldn't happen")
+      })
+      .collect::<Vec<_>>();
+    let method_name = name.to_owned() + "_" + &arg_types
+      .iter()
+      .map(|x| x.name().name())
+      .collect::<Vec<_>>()
+      .join("_");
+
+    // TODO need to figure out how to infer return type
+    let return_type = module.get_type(&return_type);
+
+    // setup field types and return type 
+    let arg_types: Vec<_> = arg_types
+      .iter()
+      .map(|x| x.get_ir_value_type(module).try_into().unwrap())
+      .collect();
+    
+    // TODO infer type based on last IR value
+    let return_type = return_type.get_ir_value_type(module);
+    let func = match return_type {
+      BasicMetadataTypeEnum::FloatType(x) => x.fn_type(&arg_types, false),
+      BasicMetadataTypeEnum::IntType(x) => x.fn_type(&arg_types, false),
+      _ => todo!("Need to support blah...")
+    };
+    // let func = module.add_function(&name, func, None);
+    let func = module.add_function(&method_name, func, None);
+    let entry = context.append_basic_block(func, "entry");
+    builder.position_at_end(entry);
+
+    // need to first load up arguments and store in scope
+    // TODO need to get actual DataType
+    let arg_datatype = DataType::new_primitive_type(
+      "Int64", "Integer", 64
+    );
+
+    let _ = arg_names.clone()
+      .into_iter()
+      .enumerate()
+      .map(|(n, name)| self.scope.insert(
+        name, 
+        (func.get_nth_method_input(n.try_into().unwrap()), arg_datatype.clone())
+      ))
+      .collect::<Vec<_>>();
+
+    for expr in (*body).iter() {
+      self.compile_expr(&builder, module, expr.clone())
+    }
+
+    // using last value on stack as return value
+    let result = self.stack.pop().unwrap();
+    let _ = match result.0 {
+      Value::FloatValue(x) => builder.build_return(Some(&x)),
+      Value::IntValue(x) => builder.build_return(Some(&x)),
+      _ => todo!("Not supported return type yet")
+    };
+
+    // pop input argument values
+    let _ = arg_names
+      .iter()
+      .map(|name| self.scope.remove(name))
+      .collect::<Vec<_>>();
+  }
+
+  fn compile_method_call<'b>(
+    &mut self,
+    builder: &'b Builder<'a>,
+    module: &mut Module<'a>,
+    name: &str,
+    args: Vec<Box<Node>>
+  ) {
+    let context = module.get_context();
+    // get arguments values from scope
+    let mut arg_vals = args
+      .iter()
+      .map(|x| match &**x {
+        // TODO currently not using the arg type here
+        Node::FunctionArg { name, arg_type: _ } => Symbol::new(&name),
+        _ => todo!("Not supported")
+      })
+      .map(|x| self.scope.get(&x).unwrap().clone())
+      .map(|x| x.0) // only need first val
+      .collect::<Vec<_>>();
+    
+    // handle printf specially for now.. eventually use a trait
+    let func_result = if name == "printf" {
+      // // // TODO need to specialize format string
+      // let format_string = context.const_string(b"%d\n\0", false);
+      // let ptr = builder.build_alloca(format_string.get_type(), "__str").unwrap();
+      // let _ = builder.build_store(ptr, format_string);
+
+      // let gep_ptr = unsafe { builder.build_in_bounds_gep(ptr, &[
+      //   context.i32_type().const_zero(),
+      //   context.i32_type().const_zero(),
+      // ], "__gep_ptr").unwrap() };
+      // // converted_args.insert(0, gep_ptr.into());
+      // arg_vals.insert(0, gep_ptr.into());
+      arg_vals.emit_ir_printf(builder, module)
+        .try_as_basic_value().unwrap_left()
+    // }
+    } else {
+      builder.build_call(
+        module.get_function(&name),
+        &arg_vals,
+        format!("__call__{}", name).as_str()
+      ).unwrap().try_as_basic_value().unwrap_left()
+    };
+    // TODO big hack for now
+    // let func_result_type = context.i64_type();
+    let func_result_type = DataType::new_primitive_type(
+      "Int64", "Signed", 64
+    );
+
+    // TODO need the return DataType so we can allocate on the stack
+    // self.stack.push(func_result.into());
+    self.stack.push((func_result.into(), func_result_type));
+  }
+
+  fn compile_module(
+    &mut self, 
+    name: Symbol, 
+    exprs: Vec<Box<Node>>,
+    context: &'a Context
+  ) {
+    let mut module = Module::new(context, name.name());
+    module.link(self.get_module("Core"));
+    let builder = context.create_builder();
     for ast in exprs {
-      // println!("ast = {:?}", ast);
-      self.compile_expr(*ast, &module);
+      self.compile_expr(&builder, &mut module, *ast);
     }
     self.modules.insert(name.clone(), module.clone());
-    // module.print_to_stderr();
-    let _ = module.print_to_file(format!("{}.ll", name.name()));
+    let _ = module.print_to_file(format!("{}.ll", name.name()).as_str());
+  }
+
+  pub fn get_module(&self, name: &str) -> &Module<'a> {
+    self.modules.get(&Symbol::new(name)).unwrap()
   }
 
   // method mainly used to include core...
-  pub fn insert_module(&mut self, name: Symbol, module: Module<'a>) -> () {
-    self.modules.insert(name, module);
+  pub fn insert_module(&mut self, name: &str, module: Module<'a>) {
+    self.modules.insert(Symbol::new(name), module);
+  }
+
+  pub fn include(&mut self, module: &mut Module<'a>, file_name: &str) {
+    let ast: Vec<_> = lexer::parse(file_name).unwrap();
+    let context = module.get_context();
+    let builder = context.create_builder();
+    for node in ast {
+      match node {
+        Node::Module { name, exprs } => {
+          self.compile_module(Symbol::new(&name), exprs, &context)
+        },
+        _ => self.compile_expr(&builder, module, node)
+      }
+    }
   }
 
   pub fn modules(&self) -> &HashMap<Symbol, Module<'a>> { &self.modules }

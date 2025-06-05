@@ -9,9 +9,9 @@ edition = "2021"
 anyhow = "1.0.95"
 clap = { version = "4.5.23", features = ["derive"] }
 dashmap = "6.1.0"
-inkwell = { version = "0.5.0", features = ["llvm14-0"] }
-pest = "2.7.15"
-pest_derive = "2.7.15"
+farnese-core = { path = "./farnese-core" }
+farnese-lexer = { path = "./farnese-lexer" }
+inkwell = { version = "0.6.0", features = ["llvm14-0"] }
 rustyline = { version = "15.0.0", optional = true }
 spinners = { version = "4.1.1", optional = true }
 termion = { version = "3.0.0", optional = true }
@@ -19,3 +19,6 @@ termion = { version = "3.0.0", optional = true }
 [features]
 interactive = [ "dep:spinners" ]
 repl = [ "dep:rustyline", "dep:termion" ]
+
+[workspace]
+members = [".", "farnese-core", "farnese-lexer"]

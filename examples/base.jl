@@ -1,5 +1,8 @@
 module Base
 
+# import Core
+
+abstract type Any end
 abstract type Number end
 abstract type Real <: Number end
 abstract type AbstractChar end
@@ -32,5 +35,8 @@ primitive type UInt128 <: Unsigned 128 end
 function add(x, y) 
   x + y
 end
+
+# a = 1
+# printf(a)
 
 end
