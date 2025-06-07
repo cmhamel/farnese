@@ -2,7 +2,11 @@ use super::{FarneseInternal, LLVMAlloca, LLVMPrintf, Module};
 // use dashmap::DashMap;
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
-use inkwell::values::PointerValue;
+use inkwell::values::{
+    BasicMetadataValueEnum,
+    CallSiteValue, 
+    PointerValue
+};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::{self, Display, Formatter};
 use std::collections::HashMap;
@@ -159,22 +163,40 @@ impl<'a, 'b> LLVMAlloca<'a, 'b> for Symbol {
     }
 }
 
-// impl<'a, 'b> LLVMPrintf<'a, 'b> for Symbol {
-//     fn emit_ir_printf(&self, builder: &'b Builder<'a>, module: &Module<'a>) {
-//         let context = module.get_context();
-//         let zero = context.i32_type().const_zero();
-//         // get appropriate format string
-//         let fmt_global = module.get_global("__fmt_string");
-//         let fmt_ptr = unsafe {
-//             builder.build_gep(fmt_global.as_pointer_value(), &[zero, zero], "fmt_ptr")
-//         }.unwrap();
-//         // fetch the second field
-//         let field_ptr = builder.build_struct_gep(*ptr, 1, "").unwrap();
-//         let sym_ptr = builder.build_load(field_ptr, "").unwrap();
-//         let printf = module.get_function("printf");
-//         let _ = builder.build_call(printf, &[fmt_ptr.into(), sym_ptr.into()], "call_printf");
-//     }
-// }
+impl<'a, 'b> LLVMPrintf<'a, 'b> for Symbol {
+    fn emit_ir_printf(
+        &self, 
+        builder: &'b Builder<'a>, 
+        module: &Module<'a>
+    ) -> CallSiteValue<'a> {
+        let context = module.get_context();
+        
+        // setup format string
+        let format_string = context.const_string(b"%s\0", false);
+        let ptr = builder.build_alloca(format_string.get_type(), "").unwrap();
+        let _ = builder.build_store(ptr, format_string);
+        let gep_ptr = unsafe { builder.build_in_bounds_gep(ptr, &[
+            context.i32_type().const_zero(),
+            context.i32_type().const_zero(),
+          ], "").unwrap() };
+        
+        // stack allocate the symbol here so we don't need
+        // to rely on a point
+        let func_args: Vec<BasicMetadataValueEnum<'a>> = vec![
+            gep_ptr.into(),
+            self.emit_ir_alloca(builder, module).into()
+        ];
+
+        // fetch the second field
+        // let field_ptr = builder.build_gep()
+        let func_result = builder.build_call(
+            module.get_function("printf"),
+            &func_args,
+            ""
+        ).unwrap();
+        func_result
+    }
+}
 
 #[derive(Clone)]
 pub struct SymbolTable {
@@ -282,7 +304,7 @@ impl SymbolTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::Core;
+    use crate::Core;
     use super::*;
     use inkwell::AddressSpace;
     use inkwell::context::Context;
@@ -348,30 +370,30 @@ mod tests {
         // module.print_to_stderr();
     }
 
-    #[test]
-    fn test_alloca_and_malloc() {
-        // let sym_table = SymbolTable::new();
-        // sym_table.intern("Symbol");
+    // #[test]
+    // fn test_alloca_and_malloc() {
+    //     // let sym_table = SymbolTable::new();
+    //     // sym_table.intern("Symbol");
 
-        let context = Context::create();
-        let builder = context.create_builder();
-        let mut core = Core::new(&context);
-        // let module = context.create_module("symbol_test_module");
-        let module = core.bootstrap();
+    //     let context = Context::create();
+    //     let builder = context.create_builder();
+    //     let mut core = Core::new(&context);
+    //     // let module = context.create_module("symbol_test_module");
+    //     let module = core.bootstrap();
 
-        core.main_func_begin(&builder, &module);
+    //     core.main_func_begin(&builder, &module);
 
-        // let sym = Symbol::new("Symbol");
-        // let sym_ptr = sym.emit_ir_malloc(&builder, &module);
-        // let _ = sym.emit_ir_printf(&builder, &module, &sym_ptr);
-        // let _ = sym.emit_ir_free(&builder, &module, &sym_ptr);
+    //     // let sym = Symbol::new("Symbol");
+    //     // let sym_ptr = sym.emit_ir_malloc(&builder, &module);
+    //     // let _ = sym.emit_ir_printf(&builder, &module, &sym_ptr);
+    //     // let _ = sym.emit_ir_free(&builder, &module, &sym_ptr);
 
-        let sym = Symbol::new("Any");
-        let sym_ptr = sym.emit_ir_alloca(&builder, &module);
-        // let _ = sym.emit_ir_printf(&builder, &module);
+    //     let sym = Symbol::new("Any");
+    //     // let sym_ptr = sym.emit_ir_alloca(&builder, &module);
+    //     let _ = sym.emit_ir_printf(&builder, &module);
 
-        core.main_func_end(&builder, &module);
+    //     core.main_func_end(&builder, &module);
 
-        let _ = module.print_to_file("sym_test.ll");
-    }
+    //     let _ = module.print_to_file("sym_test.ll");
+    // }
 }

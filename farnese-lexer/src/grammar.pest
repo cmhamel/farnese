@@ -138,10 +138,16 @@ Float = @{
   ("." ~ ASCII_DIGIT*) ~
   (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
 }
+String = @{
+  "\"" ~
+  RawIdentifier ~
+  "\""
+}
 Primitive = {
   Char |
   Float |
-  Int
+  Int | 
+  String
 }
 
 // basic stuff

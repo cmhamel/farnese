@@ -1,6 +1,5 @@
-use crate::lexer::ast::Primitive;
+use crate::ast::{Node, Operator, Primitive, Symbol};
 use crate::parser::{FarneseParser, Rule};
-use super::ast::{Node, Operator, Symbol};
 
 pub fn parse(source: &str) -> std::result::Result<Vec<Node>, pest::error::Error<Rule>> {
   let mut ast = vec![];
@@ -48,9 +47,7 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let rhs = create_ast(terms[2].clone());
       Node::BinaryExpr { op: op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
     },
-    Rule::Comment => {
-      Node::Empty
-    },
+    Rule::Comment | 
     Rule::EOI => {
       Node::Empty
     },
@@ -109,11 +106,12 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let name = parts[0].as_str().to_string();
 
       let arg_type = if parts.len() > 1 {
-        Node::Symbol(parts[1].as_str().to_string())
+        // Node::Symbol(parts[1].as_str().to_string())
+        parts[1].as_str().to_string()
       } else {
-        Node::Symbol("Any".to_string())
+        "Any".to_string()
       };
-      Node::FunctionArg { name, arg_type: arg_type.to_string() }
+      Node::FunctionArg { name, arg_type: arg_type }
     },
     Rule::FunctionExpr => {
       // Node::Empty
@@ -130,33 +128,26 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let name = pair.as_str().to_string();
       Node::Symbol(name)
     },
-    // Rule::MainFunction => {
-    //   println!("Pair = {:?}", pair);
-    //   let exprs = Box::new(pair
-    //     .into_inner()
-    //     .map(|x| create_ast(x))
-    //     .collect::<Vec<_>>()
-    //   );
-    //   Node::MainFunction { exprs }
-    // },
     Rule::MethodCall => {
       let params: Vec<_> = pair.into_inner().collect();
       let name = params[0].as_str().to_string();
       let args: Vec<_> = params[1].clone().into_inner().collect();
       let args: Vec<_> = args
         .into_iter()
-        .map(|x| Box::new(create_ast(x)))
+        .map(|x| create_ast(x))
         .collect();
+      let args = Box::new(args);
       Node::MethodCall { name: name, args: args }
     },
     Rule::Module => {
       let name = pair.clone().into_inner().next().unwrap().as_str().to_string();
       let exprs: Vec<_> = pair.into_inner().skip(1).collect();
-      let mut asts = Vec::<Box<Node>>::new();
+      let mut asts = Vec::<Node>::new();
       for expr in exprs {
         let ast = create_ast(expr);
-        asts.push(Box::new(ast))
+        asts.push(ast)
       }
+      let asts = Box::new(asts);
       Node::Module { name: name, exprs: asts }
     },
     Rule::ParenthesesExpr => {
@@ -254,6 +245,8 @@ fn create_primitive_ast(pair: pest::iterators::Pair<Rule>) -> Node {
     },
     Rule::Float => Primitive::Float64(pair.as_str().parse::<f64>().unwrap()),
     Rule::Int => Primitive::Int64(pair.as_str().parse::<i64>().unwrap()),
+    Rule::String => Primitive::String(pair.as_str().to_string()
+      .replace("\"", "").replace("\"", "")),
     _ => panic!("Unsupported primitive encountered in ast {:?}", pair)
   };
   Node::Primitive(prim)

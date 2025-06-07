@@ -29,7 +29,6 @@ function main()
     # c = add(a, b)
     c = (a + b)
     d = c + 69
-    printf(d, a, a, b)
 
     # pair = Pair(a, b)
     e = 1.
@@ -37,7 +36,9 @@ function main()
     printf(e)
     printf(f)
     # g = add(e, f)
-    printf(e, f)
+
+    str = "MyString"
+    printf(str)
 end
 
 end # module

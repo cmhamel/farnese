@@ -1,6 +1,7 @@
-use crate::core::{
+use farnese_core::{
   Core, 
   DataType, 
+  LLVMAlloca,
   LLVMPrintf,
   LLVMValue,
   MethodHelper,
@@ -8,8 +9,8 @@ use crate::core::{
   Primitive,
   Symbol
 };
-use farnese_lexer::lexer::ast::{Node, Operator};
-use farnese_lexer::lexer::lexer;
+use farnese_lexer::ast::{Node, Operator};
+use farnese_lexer::lexer;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::types::BasicMetadataTypeEnum;
@@ -110,10 +111,6 @@ impl<'a> Compiler<'a> {
         self.compile_function(module, &name, &args, &return_type, &body)
       },
       Node::MethodCall { name, args } => {
-        // lots of things to do here
-        // need to check if methods exist
-        // pass by reference vs. pass by value
-        // ensure method exists in vtable (which we haven't even thought of yet)
         self.compile_method_call(&builder, module, &name, args)
       },
       Node::ParenthesesExpr { expr } => {
@@ -121,9 +118,11 @@ impl<'a> Compiler<'a> {
       }
       Node::Primitive(x) => {
         let x: Primitive = x.into();
-        // let ptr = x.emit_ir_alloca(&builder, module);
-        // self.value_stack.push(ptr.try_into().unwrap());
-        let val = x.emit_ir_value(module);
+        // let val = x.emit_ir_value(module);
+        let val = match x {
+          Primitive::String(_) => x.emit_ir_alloca(&builder, module).into(),
+          _ => x.emit_ir_value(module)
+        };
         let datatype = x.get_datatype();
         self.stack.push((val.into(), datatype));
       },
@@ -154,10 +153,7 @@ impl<'a> Compiler<'a> {
           .expect(format!("Symbol not found: {}", x).as_str());
         self.stack.push(val.clone());
       },
-      // Node::UnaryExpr { op, child } => {
-      //   self.compile_unary_expr(builder, module, op, *child);
-      // },
-      _ => todo!("Unsupported type {}", expr)
+      _ => todo!("Unsupported type {:?}", expr)
     }
   }
 
@@ -168,7 +164,6 @@ impl<'a> Compiler<'a> {
     args: &Vec<Node>, return_type: &str, 
     body: &Box<Vec<Node>>
   ) {
-    // let builder = module.get_builder();
     let context = module.get_context();
     let builder = context.create_builder(); 
 
@@ -265,38 +260,31 @@ impl<'a> Compiler<'a> {
     builder: &'b Builder<'a>,
     module: &mut Module<'a>,
     name: &str,
-    args: Vec<Box<Node>>
+    args: Box<Vec<Node>>
   ) {
-    let context = module.get_context();
     // get arguments values from scope
-    let mut arg_vals = args
+    let arg_vals = args
       .iter()
-      .map(|x| match &**x {
+      .map(|x| match &*x {
         // TODO currently not using the arg type here
         Node::FunctionArg { name, arg_type: _ } => Symbol::new(&name),
         _ => todo!("Not supported")
       })
       .map(|x| self.scope.get(&x).unwrap().clone())
-      .map(|x| x.0) // only need first val
+      // .map(|x| x.0) // only need first val
       .collect::<Vec<_>>();
     
     // handle printf specially for now.. eventually use a trait
     let func_result = if name == "printf" {
-      // // // TODO need to specialize format string
-      // let format_string = context.const_string(b"%d\n\0", false);
-      // let ptr = builder.build_alloca(format_string.get_type(), "__str").unwrap();
-      // let _ = builder.build_store(ptr, format_string);
-
-      // let gep_ptr = unsafe { builder.build_in_bounds_gep(ptr, &[
-      //   context.i32_type().const_zero(),
-      //   context.i32_type().const_zero(),
-      // ], "__gep_ptr").unwrap() };
-      // // converted_args.insert(0, gep_ptr.into());
-      // arg_vals.insert(0, gep_ptr.into());
-      arg_vals.emit_ir_printf(builder, module)
+      assert!(arg_vals.len() == 1, "printf needs to have one input");
+      arg_vals[0].emit_ir_printf(builder, module)
         .try_as_basic_value().unwrap_left()
     // }
     } else {
+      let arg_vals = arg_vals
+        .iter()
+        .map(|x| x.0)
+        .collect::<Vec<_>>();
       builder.build_call(
         module.get_function(&name),
         &arg_vals,
@@ -317,14 +305,14 @@ impl<'a> Compiler<'a> {
   fn compile_module(
     &mut self, 
     name: Symbol, 
-    exprs: Vec<Box<Node>>,
+    exprs: Box<Vec<Node>>,
     context: &'a Context
   ) {
     let mut module = Module::new(context, name.name());
     module.link(self.get_module("Core"));
     let builder = context.create_builder();
-    for ast in exprs {
-      self.compile_expr(&builder, &mut module, *ast);
+    for ast in exprs.iter() {
+      self.compile_expr(&builder, &mut module, ast.clone());
     }
     self.modules.insert(name.clone(), module.clone());
     let _ = module.print_to_file(format!("{}.ll", name.name()).as_str());

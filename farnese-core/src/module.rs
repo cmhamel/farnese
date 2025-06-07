@@ -2,6 +2,7 @@ use super::{DataType, Symbol};
 use inkwell::{
     self, 
     AddressSpace,
+    builder::Builder,
     context::Context,
     module::{
         self,
@@ -23,30 +24,29 @@ use std::collections::HashMap;
 
 // type Methods<'a> = HashMap<(Symbol, FunctionType<'a>), FunctionValue<'a>>;
 // type Methods<'a> = HashMap<Symbol, FunctionValue<'a>>;
-// type Types<'a> = HashMap<Symbol, StructType<'a>>;
+type ArgTypes = Vec<DataType>;
+type Exports = Vec<Symbol>;
+type ReturnType = DataType;
+type MethodTable = HashMap<Symbol, (ArgTypes, ReturnType)>;
+// type Methods = HashMap<Symbol, Vec<
 type Types = HashMap<Symbol, DataType>;
 
 
 #[derive(Clone, Debug)]
-// pub struct Module<'a, 'b> {
-//     builder: &'b Builder<'a>,
 pub struct Module<'a> {
     context: &'a Context,
     // dependencies: Vec<Symbol>,
-    exports: Vec<Symbol>,
-    // methods: Methods<'a>,
-    pub module: module::Module<'a>,
+    exports: Exports,
+    methods: MethodTable,
+    module: module::Module<'a>,
     name: Symbol,
     types: Types
 }
 
-// impl<'a, 'b> Module<'a, 'b> {
 impl<'a> Module<'a> {
-    // pub fn new(builder: &'b Builder<'a>, context: &'a Context, name: &str) -> Self {
     pub fn new(context: &'a Context, name: &str) -> Self {
-        // let methods = Methods::<'a>::new();
-        // let dependencies = Vec::<Symbol>::new();
-        let exports = Vec::<Symbol>::new();
+        let exports = Exports::new();
+        let methods = MethodTable::new();
         let module = context.create_module(name);
         let symbol = Symbol::new(name);
         let types = Types::new();
@@ -65,11 +65,9 @@ impl<'a> Module<'a> {
             .add_function("printf", printf_type, Some(Linkage::External));
 
         Self {
-            // builder: builder,
             context: context,
-            // dependencies: dependencies,
             exports: exports,
-            // methods: methods,
+            methods: methods,
             module: module,
             name: symbol,
             types: types
@@ -89,16 +87,12 @@ impl<'a> Module<'a> {
         self.module.add_global(datatype, address_space, name)
     }
 
-    // pub fn get_builder(&self) -> &'b Builder<'a> {
-    //     &self.builder
-    // }
+    pub fn create_builder(&self) -> Builder<'a> {
+        self.get_context().create_builder()
+    }
 
     pub fn get_context(&self) -> &'a Context {
         &self.context
-    }
-
-    pub fn get_exports(&self) -> &Vec<Symbol> {
-        &self.exports
     }
 
     pub fn get_function(&self, name: &str) -> FunctionValue<'a> {
@@ -109,6 +103,10 @@ impl<'a> Module<'a> {
                     name, self.name, self.module.get_functions()
                 ).as_str()
             )
+    }
+
+    pub fn get_exports(&self) -> &Exports {
+        &self.exports
     }
 
     pub fn get_functions(&self) -> FunctionIterator<'a> {
@@ -161,18 +159,24 @@ impl<'a> Module<'a> {
         self.types.insert(datatype.name().clone(), datatype);
     }
 
-    pub fn link(&self, module: &Module<'a>) {
+    pub fn link(&mut self, module: &Module<'a>) {
         self.module.link_in_module(module.module.clone()).unwrap();
-        // types first
-        // for export in module.get_exports().iter() {
-        //     let datatype = module.get_types().get(export);
-        //     let _ = match datatype {
-        //         Some(x) => {
-                    
-        //         },
-        //         None => {}
-        //     };
-        // }
+
+        for k in module.get_exports() {
+            // first try assuming this key is a type
+            if self.types.contains_key(k) {
+                panic!(
+                    "Conflicting type {} in modules {} and {}", 
+                    k, self.name(), module.name()
+                )
+            } else {
+                // TODO note this will error if the type doesn't exist
+                // need to change this to use a Result<>
+                self.insert_type(module.get_type(k.name()).clone())
+            }
+
+            // TODO need to handle globals, functions, etc.
+        }
     }
 
     pub fn module(&self) -> &module::Module<'a> {
@@ -187,7 +191,7 @@ impl<'a> Module<'a> {
         self.module.print_to_file(name).unwrap()
     }
 
-    pub fn push_export(&mut self, name: Symbol) {
-        self.exports.push(name);
+    pub fn push_export(&mut self, sym: Symbol) {
+        self.exports.push(sym)
     }
 }

@@ -1,7 +1,7 @@
 use pest::{self, Parser};
 
 #[derive(pest_derive::Parser)]
-#[grammar = "./parser/grammar.pest"]
+#[grammar = ".//grammar.pest"]
 pub struct FarneseParser;
 
 impl FarneseParser {

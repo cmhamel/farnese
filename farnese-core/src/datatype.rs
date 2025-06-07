@@ -221,7 +221,8 @@ impl<'a> LLVMType<'a> for DataType {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{Core, DataType, LLVMPrintf};
+    use crate::{DataType, LLVMPrintf};
+    use crate::test_utils::TestHelper;
     use super::*;
     use inkwell::context::Context;
 
@@ -229,10 +230,8 @@ mod tests {
     fn test_datatype() {
         let context = Context::create();
         let builder = context.create_builder();
-        let mut core = Core::new(&context);
-        let module = core.bootstrap();
-
-        core.main_func_begin(&builder, &module);
+        let tester = TestHelper::new("test_datatype", &builder, &context);
+        tester.start();
 
         let sym = Symbol::new("DataType");
         let sym_super = Symbol::new("DataType");
@@ -243,18 +242,18 @@ mod tests {
             false, false, false, 
             field_names, field_types
         );
-        let ptr = datatype.emit_ir_alloca(&builder, &module);
+        let ptr = datatype.emit_ir_alloca(&builder, &tester.module);
 
-        let func = module.get_function("name");
-        let func_result = builder.build_call(func, &[ptr.into()], "call_name")
+        let func = tester.module.get_function("name");
+        let _ = builder.build_call(func, &[ptr.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_pointer_value();
-        let _ = sym.emit_ir_printf(&builder, &module);
+        let _ = sym.emit_ir_printf(&builder, &tester.module);
 
-        let func = module.get_function("supertype");
+        let func = tester.module.get_function("supertype");
         let func_result = builder.build_call(func, &[ptr.into()], "call_supertype")
             .unwrap()
             .try_as_basic_value()
@@ -262,14 +261,14 @@ mod tests {
             .unwrap()
             .into_pointer_value();
 
-        let func = module.get_function("name");
-        let func_result = builder.build_call(func, &[func_result.into()], "call_name")
+        let func = tester.module.get_function("name");
+        let _ = builder.build_call(func, &[func_result.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_pointer_value();
-        let _ = sym.emit_ir_printf(&builder, &module);
+        let _ = sym.emit_ir_printf(&builder, &tester.module);
 
         // now make Any
         let sym = Symbol::new("Any");
@@ -281,18 +280,18 @@ mod tests {
             false, false, false, 
             field_names, field_types
         );
-        let ptr = datatype.emit_ir_alloca(&builder, &module);
+        let ptr = datatype.emit_ir_alloca(&builder, &tester.module);
 
-        let func = module.get_function("name");
-        let func_result = builder.build_call(func, &[ptr.into()], "call_name")
+        let func = tester.module.get_function("name");
+        let _ = builder.build_call(func, &[ptr.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_pointer_value();
-        let _ = sym.emit_ir_printf(&builder, &module);
+        let _ = sym.emit_ir_printf(&builder, &tester.module);
 
-        let func = module.get_function("supertype");
+        let func = tester.module.get_function("supertype");
         let func_result = builder.build_call(func, &[ptr.into()], "call_supertype")
             .unwrap()
             .try_as_basic_value()
@@ -300,14 +299,14 @@ mod tests {
             .unwrap()
             .into_pointer_value();
 
-        let func = module.get_function("name");
-        let func_result = builder.build_call(func, &[func_result.into()], "call_name")
+        let func = tester.module.get_function("name");
+        let _ = builder.build_call(func, &[func_result.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_pointer_value();
-        let _ = sym.emit_ir_printf(&builder, &module);
+        let _ = sym.emit_ir_printf(&builder, &tester.module);
 
         // now make some other type
         let sym = Symbol::new("Number");
@@ -319,18 +318,18 @@ mod tests {
             false, false, false, 
             field_names, field_types
         );
-        let ptr = datatype.emit_ir_alloca(&builder, &module);
+        let ptr = datatype.emit_ir_alloca(&builder, &tester.module);
 
-        let func = module.get_function("name");
-        let func_result = builder.build_call(func, &[ptr.into()], "call_name")
+        let func = tester.module.get_function("name");
+        let _ = builder.build_call(func, &[ptr.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_pointer_value();
-        let _ = sym.emit_ir_printf(&builder, &module);
+        let _ = sym.emit_ir_printf(&builder, &tester.module);
 
-        let func = module.get_function("supertype");
+        let func = tester.module.get_function("supertype");
         let func_result = builder.build_call(func, &[ptr.into()], "call_supertype")
             .unwrap()
             .try_as_basic_value()
@@ -338,17 +337,15 @@ mod tests {
             .unwrap()
             .into_pointer_value();
 
-        let func = module.get_function("name");
-        let func_result = builder.build_call(func, &[func_result.into()], "call_name")
+        let func = tester.module.get_function("name");
+        let _ = builder.build_call(func, &[func_result.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_pointer_value();
-        let _ = sym.emit_ir_printf(&builder, &module);
+        let _ = sym.emit_ir_printf(&builder, &tester.module);
 
-        core.main_func_end(&builder, &module);
-
-        let _ = module.print_to_file("datatype_test.ll");
+        tester.end();
     }
 }
