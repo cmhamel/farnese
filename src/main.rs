@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use farnese::compiler::Compiler;
+use farnese_compiler::Compiler;
 use farnese_core::Module;
 use farnese_lexer::lexer;
 use inkwell::context::Context;

@@ -33,17 +33,26 @@ primitive type Int64   <: Signed   64 end
 # primitive type Int128  <: Signed   128 end
 # primitive type UInt128 <: Unsigned 128 end
 
-# struct Nothing
-# end
+struct Nothing
+end
 
-# struct Pair
-#   a
-#   b
-# end
+struct Pair
+  a
+  b
+end
 
-# struct FloatPair
-#   a::Float64
-#   b::Float64
-# end
+struct FloatPair
+  a::Float64
+  b::Float64
+end
 
+function add(a::Int64, b::Int64)::Int64
+    a + b
+end
+
+function main()
+a = 1
+b = 2
+c = add(a::Int64, b::Int64)
+end
 end # module
