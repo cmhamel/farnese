@@ -1,23 +1,54 @@
 //WHITESPACE = _{ " " | "\t" | NEWLINE }
+NEWLINE = _{  "␊" | "\n" | "\r\n" | "\r" | "\u{240A}" | "\u{240D}" }  // explicitly support CR, LF, and CRLF
 WHITESPACE = _{ " " | "\t" }
 
-KEYWORD = _{ 
-  "abstract type" | 
-  "end" |
-  "function" |
-  "import" |
-  "module" |
+
+KEYWORD = _{
+  KEYWORD_WORD ~ !(alpha | alpha_num | "_" | "!")
+}
+
+KEYWORD_WORD = { 
+  "abstract type"  | 
+  "const"          |
+  "end"            |
+  "export"         |
+  "function"       |
+  "global"         |
+  "import"         |
+  "macro"          |
+  "module"         |
+  "mutable"        |
   "primitive type" |
-  "struct" |
-  "using"
+  "quote"          |
+  "public"         |
+  "struct"         |
+  "using"          |
+  "where"
 }
 alpha = { 'a'..'z' | 'A'..'Z' }
 alpha_num = { 'a'..'z' | 'A'..'Z' | '0'..'9' }
+unicode = {
+  "λ"
+}
 
-//Identifier = @{ !KEYWORD ~ (alpha | "_") ~ alpha_num* }
-
-RawIdentifier = @{ (alpha | "_") ~ alpha_num* }
-Identifier = @{ !KEYWORD ~ RawIdentifier }
+RawIdentifier = @{ 
+  (alpha | unicode | "_") ~ 
+  (alpha_num | unicode | "!" | "_")* 
+}
+MacroIdentifier = @{ 
+  "@" ~ 
+  (alpha | unicode | "_") ~ 
+  (alpha_num | unicode | "!" | "_")* 
+}
+IdentifierBase = @{ !KEYWORD ~ (RawIdentifier | Symbol) }
+DotIdentifier = { 
+  IdentifierBase ~ 
+  (
+    "." ~
+    IdentifierBase
+  )+
+}
+Identifier = { IdentifierBase | DotIdentifier }
 
 Program = _{ 
   SOI ~ 
@@ -25,108 +56,373 @@ Program = _{
   EOI 
 }
 
-Program_other = _{ SOI ~ "\n"* ~ (Expr ~ "\n"+) * ~ Expr? ~ EOI }
-
 Exprs = _{ (Expr ~ NEWLINE*)+ }
 
 Expr = { 
-  Comment |
-  //MainFunction |
-  Module |
-  StructType |
-  ImportExpr |
-  UsingExpr |
-  UnaryExpr |
-  AbstractType | 
-  PrimitiveType |
-  Function |
-  BinaryExpr |
-  Float |
-  Int |
-  AssignmentExpr |
-  //BinaryExpr |
-  MethodCall
+  // Module stuff
+  Module            |
+  ConstExpr         |
+  ExportExpr        |  
+  GlobalExpr        |
+  ImportExpr        |
+  UsingExpr         |
+  // Types
+  AbstractType      |  
+  PrimitiveType     |
+  StructType        |
+  MutableStructType |
+  // macro stuff
+  MacroCall         |
+  MacroExpr         |
+  LetExpr           |
+  QuoteExpr         |
+  // Functions 
+  Function          |
+  Function2         |
+  Function3         |
+  MethodCall        |
+  ReturnExpr        |
+  // field access
+  // Logic
+  IfExpr            |
+  WhileExpr         |
+  // Basic expressions 
+  UnaryExpr         |
+  BinaryExpr        |
+  AssignmentExpr    |
+  // Primitives
+  Float             |
+  Int               |
+  String            |
+  Symbol            |
+  // Stuff to ignore
+  Comment 
 }
 
-// different code block types
-//MainFunction = { "function main()" ~ Exprs ~ "end" }
-Module = { "module" ~ Identifier ~ (Expr | NEWLINE)* ~ "end" }
-ImportExpr = { "import" ~ Identifier ~ "." ~ Identifier ~ NEWLINE }
-UsingExpr = { "using" ~ Identifier ~ NEWLINE }
+ReturnExpr = { "return" ~ Expr ~ (("," ~ Expr)*)? }
+
+DotCall = {
+  DotIdentifier ~
+  FunctionArgs
+}
+
+///////////////////////////////////////////////////////////////////////////
+// module
+///////////////////////////////////////////////////////////////////////////
+Module = { 
+  "module" ~ Identifier ~ 
+  (Expr | NEWLINE)* ~ 
+  "end" 
+}
+
+// consts
+ConstExpr = { 
+  "const" ~ 
+  AssignmentExpr ~ 
+  EndLineComment? ~ 
+  NEWLINE 
+}
+
+// exports
+//ExportExpr = { "export" ~ (NEWLINE | ExportLine)* ~ NEWLINE }
+ExportExpr = { "export" ~ ExportLine* }
+ExportLine = { 
+  Comment | 
+  ((Identifier | BinaryOperator) ~ ","?)* ~ NEWLINE
+}
+
+// global
+GlobalExpr = {
+  "global" ~
+  (AssignmentExpr | Function)
+}
+
+///////////////////////////////////////////////////////////////////////////
+// imports
+///////////////////////////////////////////////////////////////////////////
+ImportExpr = { 
+  "import" ~ 
+  (".." | ".")? ~
+  Identifier ~ 
+  (":" ~ (
+    (Identifier ~ ","?)* ~
+    NEWLINE
+  )*)
+}
+
+///////////////////////////////////////////////////////////////////////////
+// using
+///////////////////////////////////////////////////////////////////////////
+UsingExpr = { 
+  "using" ~ 
+  (".." | ".")? ~
+  Identifier ~ 
+  (":" ~ (
+    (Identifier ~ ","?)* ~
+    NEWLINE
+  )*)
+}
+
+///////////////////////////////////////////////////////////////////////////
+// types
+///////////////////////////////////////////////////////////////////////////
 AbstractType = { "abstract type" ~ Identifier ~ Generics? ~ SuperType? ~ "end" }
 PrimitiveType = { "primitive type" ~ Identifier ~ PrimitiveSuperType? ~ PrimitiveBits ~ "end" }
-Function = { "function" ~ Identifier ~ Generics? ~ FunctionArgs? ~ FunctionReturnType? ~ FunctionExprs ~ "end" }
-MethodCall = { Identifier ~ FunctionArgs }
 
+///////////////////////////////////////////////////////////////////////////
 // typedef stuff
-StructType = { "struct" ~ Identifier ~ Generics? ~ SuperType? ~ (StructField | NEWLINE)* ~ "end" }
-StructField = { Identifier ~ ("::" ~ Identifier ~ Generics?)? }
+///////////////////////////////////////////////////////////////////////////
+//Generics = { "{" ~ Generic* ~ "}" }
+//Generic = { Identifier ~ SuperType? ~ ","? }
+Generic = { Identifier ~ SuperType? }
+Generics = { "{" ~ (Generic ~ ("," ~ Generic)*)? ~ "}" }
 
-// common parsing stuff
-Generics = { "{" ~ Generic* ~ "}" }
-Generic = { Identifier ~ SuperType? ~ ","? }
 SuperType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier ~ Generics? }
 PrimitiveBits = @{ ASCII_DIGIT* }
 PrimitiveSuperType = { WHITESPACE* ~ "<:" ~ WHITESPACE* ~ Identifier }
-FunctionArgs = { "(" ~ FunctionArg* ~ ")" }
-//FunctionArg = { Identifier ~ "," ? }
-FunctionArg = { (Identifier ~ ("::" ~ Identifier ~ Generics?)?) ~ "," ? }
+StructType = { 
+  "struct" ~ Identifier ~ Generics? ~ SuperType? ~ 
+  (
+    Function2         |
+    Function          |
+    StructField       |  
+    SingleLineComment |
+    NEWLINE
+  )* ~ 
+  "end" 
+}
+MutableStructType = { 
+  "mutable struct" ~ Identifier ~ Generics? ~ SuperType? ~ 
+  (
+    Function2         |
+    Function          |
+    StructField       |  
+    SingleLineComment |
+    NEWLINE
+  )* ~ 
+  "end" 
+}
+StructField = { Identifier ~ ("::" ~ Identifier ~ Generics?)? }
+TypeExpr = { Identifier ~ Generics? }
+
+///////////////////////////////////////////////////////////////////////////
+// Functions
+///////////////////////////////////////////////////////////////////////////
+// functions defined with function keyword
+Function = { 
+  "function" ~ Identifier ~ Generics? ~ FunctionArgs? ~ FunctionReturnType? ~ 
+  FunctionExprs? ~ 
+  "end" 
+}
+// inline funcitons e.g. funct(a, b) = a + b
+Function2 = {
+  Identifier ~ Generics? ~ FunctionArgs ~ FunctionReturnType? ~
+  "=" ~ NEWLINE? ~
+  (Expr | Identifier | SemiColonTuple | MethodCall) ~
+  (("," ~ (Expr | Identifier | SemiColonTuple | MethodCall))*)? ~
+  NEWLINE?
+}
+// inline function with e.g. (a::SomeType)(b, c) = a + b + c 
+Function3 = {
+  "(" ~ Identifier ~ "::" ~ TypeExpr ~ ")" ~ FunctionArgs ~ FunctionReturnType? ~
+  "=" ~ NEWLINE? ~
+  (Expr | Identifier | SemiColonTuple) ~
+  NEWLINE?
+}
+MethodCall = { (Identifier | DotCall) ~ FunctionArgs }
+
+FunctionArgs = { "(" ~ NEWLINE? ~ FunctionArg* ~ ")" }
+FunctionArg = { 
+  (
+    //(Identifier ~ "..."?) |
+    DecoratedArg            |
+    MacroCall               |
+    Primitive               |
+    String                  |  
+    (Identifier ~ "..."?)   |
+    TypeExpr                |
+    //DotIdentifier         |
+    BinaryExpr              |
+    //MacroCall               |  
+    MethodCall              | 
+    QuoteExpr               | 
+    Symbol                           
+  ) ~
+  ("::" ~ TypeExpr)? ~
+  "..."? ~
+  ("=" ~ Expr)? ~
+  ","? ~ NEWLINE? 
+}
+
+DecoratedArg = {
+  MacroCall ~ Identifier ~ "..."?
+}
+
 FunctionExprs = { FunctionExpr* }
 FunctionExpr = {
-  Comment |
+  Comment        |
   AssignmentExpr |
-  BinaryExpr |
-  UnaryExpr |
-  MethodCall |
-  Identifier |
+  BinaryExpr     |
+  UnaryExpr      |
+  MethodCall     |
+  Identifier     |
+  ReturnExpr     |
   NEWLINE
 }
 FunctionReturnType = { "::" ~ Identifier }
 
+///////////////////////////////////////////////////////////////////////////
+// if statements
+///////////////////////////////////////////////////////////////////////////
+IfExpr = {
+  //"if" ~ ConditionExpr ~ NEWLINE? ~
+  //Expr* ~
+  IfBlock ~
+  ElseIfBlock* ~
+  ElseBlock? ~
+  "end"
+}
+IfBlock = {
+  "if" ~ ConditionExpr ~ NEWLINE? ~
+  Expr*
+}
+ElseIfBlock = {
+  "elseif" ~ ConditionExpr ~ NEWLINE? ~
+  Expr*
+}
+ElseBlock = {
+  "else" ~ NEWLINE? ~
+  Expr*
+}
+ConditionExpr = { 
+  BinaryExpr | 
+  UnaryExpr  | 
+  MethodCall |
+  Identifier | 
+  "true"     | 
+  "false"    
+}
+
+///////////////////////////////////////////////////////////////////////////
+// loops
+///////////////////////////////////////////////////////////////////////////
+WhileExpr = {
+  "while" ~ ConditionExpr ~ NEWLINE ~ NEWLINE ~
+  Expr* ~
+  "end"
+}
+ 
+///////////////////////////////////////////////////////////////////////////
 // expression
+///////////////////////////////////////////////////////////////////////////
 ExprTerm = _{ 
+  MethodCall      |
+  DotCall         |
   ParenthesesExpr |
-  Primitive |
-  Identifier |
-  //BinaryExpr |
-  UnaryExpr
+  Primitive       |
+  Identifier      |
+  //BinaryExpr    |
+  UnaryExpr       |
+  TypeExpr
+  //MethodCall      
   //"(" ~ (Primitive | Identifier | BinaryExpr) ~ ")" 
 }
-BinaryExpr = { ExprTerm ~ BinaryOperator ~ ExprTerm }
+BinaryExpr = { 
+  ExprTerm ~ 
+  BinaryOperator ~ 
+  ExprTerm
+}
+TernaryExpr = { ExprTerm ~ "?" ~ ExprTerm ~ ":" ~ ExprTerm }
 UnaryExpr = { UnaryOperator ~ ExprTerm }
-//BinaryExpr = { (Identifier | Primitive) ~ BinaryOperator ~ (Identifier | Primitive) }
-//UnaryExpr = { UnaryOperator ~ (Identifier | Primitive) }
-//ParenthesesExpr = { "(" ~ (Primitive | Identifier | BinaryExpr | UnaryExpr) ~ ")" }
 ParenthesesExpr = { "(" ~ (BinaryExpr | ExprTerm) ~ ")" }
 
-AssignmentExpr = { Identifier ~ "=" ~ (ParenthesesExpr | BinaryExpr | MethodCall | Identifier | Primitive | UnaryExpr) }
-//AssignmentExpr = { Identifier ~ "=" ~ ExprTerm }
-//AssignmentExpr = { Identifier ~ "=" ~ (Primitive | ParenthesesExpr | BinaryExpr | MethodCall | Identifier | UnaryExpr) }
+AssignmentExpr = { 
+  Identifier ~ Generics? ~
+  "=" ~ 
+  (
+    ParenthesesExpr | 
+    BinaryExpr      | 
+    DotCall         |
+    MethodCall      | 
+    Identifier      | 
+    Primitive       | 
+    UnaryExpr               
+  ) ~ Generics?
+}
 
+///////////////////////////////////////////////////////////////////////////
+// quote
+///////////////////////////////////////////////////////////////////////////
+LetExpr = {
+  "let" ~ NEWLINE? ~
+  Expr* ~ 
+  "end"
+}
 
+///////////////////////////////////////////////////////////////////////////
+// quote
+///////////////////////////////////////////////////////////////////////////
+QuoteExpr = {
+  "quote" ~ NEWLINE? ~
+  Expr* ~
+  "end"
+}
 
+///////////////////////////////////////////////////////////////////////////
+// macro
+///////////////////////////////////////////////////////////////////////////
+MacroCall = {
+  MacroIdentifier ~ ("(" ~ (!")" ~ ANY)* ~ ")")? ~ ";"?
+  //MacroIdentifier ~ MacroArgs? ~ ";"?
+  //MacroIdentifier ~ MacroArgs? ~ ";"?
+}
+MacroExpr = {
+  "macro" ~ Identifier ~ MacroArgs? ~ NEWLINE? ~
+  Exprs? ~ NEWLINE? ~
+  "end"
+}
+MacroArgs = { "("? ~ MacroArg* ~ ")"? }
+MacroArg = { Identifier ~ "..."? ~ ","? }
+//MacroArgs = { Identifier ~ "..."? ~ ","? }
+
+///////////////////////////////////////////////////////////////////////////
 // operators
+///////////////////////////////////////////////////////////////////////////
 BinaryOperator = {
-  "-" |
-  "+" |
-  "*" |
-  "/" |
-  "^" |
-  "%"
+  "-"   |
+  "+"   |
+  "*"   |
+  "/"   |
+  "^"   |
+  "%"   |
+  "===" |
+  "=="  |
+  "<:"  |
+  "&&"  |
+  "||"
+}
+TernaryOperator = {
+  "?"
 }
 UnaryOperator = {
   "-" |
   "+"
 }
-
 Operator = {
   UnaryOperator |
-  BinaryOperator
+  BinaryOperator |
+  TernaryOperator
 }
 
+///////////////////////////////////////////////////////////////////////////
 // primitive type defaults
+///////////////////////////////////////////////////////////////////////////
 Char = @{
   "'" ~ ASCII_ALPHANUMERIC ~ "'"
+}
+Hex = @{
+  "0x" ~ 
+  ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*)
 }
 Int = @{
   "-"? ~
@@ -140,20 +436,55 @@ Float = @{
 }
 String = @{
   "\"" ~
-  RawIdentifier ~
+  RawIdentifier? ~
   "\""
 }
-Primitive = {
-  Char |
-  Float |
-  Int | 
-  String
+SemiColonTuple = {
+  "(" ~
+  ((
+    Identifier | 
+    Primitive  | 
+    MacroCall  |
+    MethodCall |
+    BinaryExpr |
+    UnaryExpr
+  ) ~ ";"?)* ~
+  ")"
+}
+//Symbol = { ":" ~ alpha_num* }
+Symbol = { ":" ~ IdentifierBase }
+Tuple = { 
+  "(" ~ 
+  ((
+    Identifier | 
+    Primitive  | 
+    MacroCall  |
+    MethodCall |
+    BinaryExpr |
+    UnaryExpr
+  ) ~ ","?)* ~ 
+  ")"
 }
 
-// basic stuff
+Primitive = {
+  Char           |
+  Float          |
+  Hex            |
+  Int            | 
+  SemiColonTuple |
+  String         | 
+  Symbol         | 
+  Tuple
+}
+
+///////////////////////////////////////////////////////////////////////////
+// comments
+///////////////////////////////////////////////////////////////////////////
 Comment = { BlockComment | SingleLineComment }
 BlockComment = { StartBlock ~ (BlockContent | BlockComment)* ~ EndBlock }
 StartBlock = { "\"\"\"" }
 EndBlock = { "\"\"\"" }
 BlockContent = { (!StartBlock ~ !EndBlock ~ ANY)+ }
 SingleLineComment = { "#" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }
+EndLineComment = { "#" ~ (alpha_num | ":" | "`" | "␊")* }
+//EndLineComment = { "#" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }

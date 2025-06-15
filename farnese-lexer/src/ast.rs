@@ -2,9 +2,12 @@
 pub enum Operator {
   // Assignment,
   Divide,
+  Equal,
+  EqualEqual,
   Minus,
   Multiply,
-  Plus
+  Plus,
+  SubType
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,7 +45,13 @@ pub enum Node {
     lhs: Box<Node>,
     rhs: Box<Node>,
   },
+  ConstExpr {
+    expr: Box<Node>
+  },
   Empty,
+  Exports {
+    symbols: Box<Vec<Node>>
+  },
   Function {
     name: Symbol,
     // arg_names: Vec<Symbol>,
@@ -59,6 +68,17 @@ pub enum Node {
     names: Vec<Symbol>,
     types: Vec<Symbol>
   },
+  IfExpr {
+    condition: Box<Node>,
+    if_block: Box<Vec<Node>>,
+    // TODO elseif
+    else_block: Box<Vec<Node>>
+  },
+  Macro {
+    name: Symbol,
+    args: Box<Vec<Node>>,
+    body: Box<Vec<Node>>
+  },
   MethodCall {
     name: Symbol,
     args: Box<Vec<Node>>
@@ -67,6 +87,7 @@ pub enum Node {
     name: Symbol,
     exprs: Box<Vec<Node>>
   },
+  Operator(Operator),
   ParenthesesExpr {
     expr: Box<Node>
   },

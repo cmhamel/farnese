@@ -16,12 +16,19 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
   let ast: Node = match pair.as_rule() {
     Rule::AbstractType => {
       let parts: Vec<_> = pair.into_inner().collect();
-      let name = parts[0].as_str().to_string();
-
-      let supertype = if parts.len() > 1 {
-        parts[1].clone().into_inner().collect::<Vec<_>>()[0].as_str().to_string()
-      } else {
-        "Any".to_string()
+      let name = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::Identifier))
+        .next()
+        .unwrap()
+        .as_str().to_string();
+      let supertype = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::SuperType))
+        .next();
+      let supertype = match supertype {
+        Some(x) => x.as_str().to_string(),
+        None => "Any".to_string()
       };
       Node::AbstractType {
         name: name,
@@ -39,6 +46,8 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let lhs = create_ast(terms[0].clone());
       let op = match terms[1].as_str() {
         "/" => Operator::Divide,
+        "==" => Operator::Equal,
+        "===" => Operator::EqualEqual,
         "-" => Operator::Minus,
         "*" => Operator::Multiply,
         "+" => Operator::Plus,
@@ -47,10 +56,60 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let rhs = create_ast(terms[2].clone());
       Node::BinaryExpr { op: op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
     },
-    Rule::Comment | 
+    Rule::BinaryOperator => {
+      let op = match pair.as_str() {
+        "/" => Operator::Divide,
+        "==" => Operator::Equal,
+        "===" => Operator::EqualEqual,
+        "-" => Operator::Minus,
+        "*" => Operator::Multiply,
+        "+" => Operator::Plus,
+        "<:" => Operator::SubType,
+        _ => todo!()
+      };
+      Node::Operator(op)
+    }
+    Rule::Comment => {
+      Node::Empty
+    },
+    Rule::ConstExpr => {
+      let parts: Vec<_> = pair.into_inner().collect();
+      // for part in parts {
+      //   println!("part = {:?}", part)
+      // }
+      let ast = parts
+        .iter()
+        .map(|p| create_ast(p.clone()))
+        .collect::<Vec<_>>()[0].clone();
+      Node::ConstExpr { expr: Box::new(ast) }
+    }
+    Rule::EndLineComment |
     Rule::EOI => {
       Node::Empty
     },
+    Rule::ExportExpr => {
+      let mut exports = Vec::<Node>::new();
+      for export in pair.into_inner() {
+        match export.as_rule() {
+          Rule::ExportLine => {
+            let line_exports = export
+              .into_inner()
+              .map(|p| create_ast(p))
+              .collect::<Vec<_>>();
+            exports.extend(line_exports);
+          },
+          _ => panic!()
+        }
+      }
+      let exports = exports
+        .into_iter()
+        .filter(|e| match e {
+          Node::Symbol(_) => true,
+          _ => false
+        })
+        .collect::<Vec<_>>();
+      Node::Exports { symbols: Box::new(exports) }
+    }
     Rule::Expr => {
       create_ast(pair.into_inner().next().unwrap())
     },
@@ -101,6 +160,51 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
       let body = Box::new(body);
       Node::Function { name, args, return_type, body }
     },
+    Rule::Function2 => {
+      let parts = pair.clone()
+        .into_inner()
+        .collect::<Vec<_>>();
+      let name = create_ast(parts[0].clone());
+      let name = match name {
+        Node::Symbol(x) => x,
+        _ => panic!("This shouldn't happend")
+      };
+      for part in &parts {
+        println!("\n\npart = {:?}", part);
+      }
+      let args = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::FunctionArgs))
+        .map(|p| {
+          p.clone()
+            .into_inner()
+            .collect::<Vec<_>>()
+            .iter()
+            .filter(|p| matches!(p.as_rule(), Rule::FunctionArg))
+            .map(|a| create_ast(a.clone()))
+            .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+      let body = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(),
+          Rule::Expr
+        ))
+        .map(|p| create_ast(p.clone()))
+        .collect::<Vec<_>>();
+      println!("name = {:?}", name);
+      println!("args = {:?}", args);
+      println!("expr = {:?}", body);
+
+      // TODO TODO TODO TODO
+      let args = Box::new(args);
+      let return_type = "Any".to_string();
+      let body = Box::new(body);
+      Node::Function { name, args, return_type, body }
+    }
     Rule::FunctionArg => {
       let parts: Vec<_> = pair.into_inner().collect();
       let name = parts[0].as_str().to_string();
@@ -127,6 +231,103 @@ fn create_ast(pair: pest::iterators::Pair<Rule>) -> Node {
     Rule::Identifier => {
       let name = pair.as_str().to_string();
       Node::Symbol(name)
+    },
+    Rule::IfExpr => {
+      let parts: Vec<_> = pair.into_inner().collect();
+      let if_block = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::IfBlock))
+        .collect::<Vec<_>>();
+
+      assert!(if_block.len() == 1);
+      let (condition, if_block) = match if_block[0].as_rule() {
+        Rule::IfBlock => {
+          let block = if_block[0].clone().into_inner().collect::<Vec<_>>();
+          let condition = block
+            .iter()
+            .filter(|p| matches!(p.as_rule(), Rule::ConditionExpr))
+            .map(|p| {
+              let parts = p.clone().into_inner().collect::<Vec<_>>();
+              assert!(parts.len() == 1);
+              create_ast(parts[0].clone())
+            })
+            .collect::<Vec<_>>();
+          let asts = block
+            .iter()
+            .filter(|p| matches!(p.as_rule(), Rule::Expr))
+            .map(|p| create_ast(p.clone()))
+            .collect::<Vec<_>>();
+          (condition, asts)
+        },
+        _ => panic!()
+      };
+      assert!(condition.len() == 1);
+      // TODO else if block
+
+      let else_block = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::ElseBlock))
+        .collect::<Vec<_>>();
+      let else_block = match else_block[0].as_rule() {
+        Rule::ElseBlock => {
+          let block = else_block[0].clone().into_inner().collect::<Vec<_>>();
+          block
+            .iter()
+            .filter(|p| matches!(p.as_rule(), Rule::Expr))
+            .map(|p| create_ast(p.clone()))
+            .collect::<Vec<_>>()
+        },
+        _ => panic!()
+      };
+
+      let condition = Box::new(condition[0].clone());
+      let if_block = Box::new(if_block);
+      let else_block = Box::new(else_block);
+      Node::IfExpr { condition, if_block, else_block }
+    },
+    Rule::MacroExpr => {
+      let parts = pair.into_inner().collect::<Vec<_>>();
+      let name = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::Identifier))
+        .map(|p| create_ast(p.clone()))
+        .next()
+        .unwrap();
+      let name = match name {
+        Node::Symbol(x) => x,
+        _ => panic!()
+      };
+      let args = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::MacroArgs))
+        .map(|p| {
+          p.clone()
+            .into_inner()
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|a| match a.as_rule() {
+              Rule::MacroArg => {
+                let parts = a.clone().into_inner().collect::<Vec<_>>();
+                assert!(parts.len() == 1);
+                create_ast(parts[0].clone())
+              },
+              _ => panic!()
+            })
+            .collect::<Vec<_>>()
+        })
+        .next();
+      let args = match args {
+        Some(x) => x,
+        None => Vec::<Node>::new()
+      };
+      let body = parts
+        .iter()
+        .filter(|p| matches!(p.as_rule(), Rule::Expr))
+        .map(|p| create_ast(p.clone()))
+        .collect::<Vec<_>>();
+      let args = Box::new(args);
+      let body = Box::new(body);
+      Node::Macro { name, args, body }
     },
     Rule::MethodCall => {
       let params: Vec<_> = pair.into_inner().collect();

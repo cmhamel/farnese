@@ -45,6 +45,22 @@ fn main() {
     Some(Commands::Compiler { input, output, optimize: _ }) => {
       let source = fs::read_to_string(input)
         .expect("Failed reading file");
+      //   .replace('\u{240A}', "\n") // visual linefeed
+      //   .replace('\u{240D}', "\n") // visual carriage return
+      //   .replace("\r\n", "\n")
+      //   .replace('\r', "\n")
+      //   .chars()
+      //   .filter(|&c| !(('\u{2400}'..='\u{2426}').contains(&c))) // strip U+2400–U+2426
+      //   .collect::<String>();
+
+      // for (i, c) in source.chars().enumerate() {
+      //   if c == '\u{240A}' {
+      //     println!("Found visible LF symbol (U+240A) at char index {}", i);
+      //   } else if !c.is_ascii() {
+      //     println!("Non-ASCII char at {}: U+{:04X} ({:?})", i, c as u32, c);
+      //   }
+      // }
+      // panic!();
       let context = Context::create();
 
       let mut compiler = Compiler::new(&context);
