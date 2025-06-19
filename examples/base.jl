@@ -1,6 +1,12 @@
 module Base
 
-# import Core
+# using Core
+# using Core: Some
+
+export 
+  Any, Number, Real, 
+  AbstractChar, AbstractFloat,
+  Integer, Signed, Unsigned
 
 abstract type Any end
 abstract type Number end
@@ -32,11 +38,16 @@ primitive type UInt128 <: Unsigned 128 end
 
 
 # some general operations
-function add(x, y) 
-  x + y
-end
+# function add(x, y) 
+#   x + y
+# end
 
 # a = 1
 # printf(a)
+
+function main()
+  a = 1
+  printf(a)
+end
 
 end

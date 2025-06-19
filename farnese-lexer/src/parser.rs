@@ -5,8 +5,8 @@ use pest::{self, Parser};
 pub struct FarneseParser;
 
 impl FarneseParser {
-  pub fn from_source(source: &str) -> pest::iterators::Pairs<'_, Rule> {
-    FarneseParser::parse(Rule::Program, source)
-      .expect(format!("Failed parsing file {}", source).as_str())
-  }
+    pub fn from_source(source: &str) -> pest::iterators::Pairs<'_, Rule> {
+        FarneseParser::parse(Rule::Program, source)
+            .expect(format!("Failed parsing file {}", source).as_str())
+    }
 }

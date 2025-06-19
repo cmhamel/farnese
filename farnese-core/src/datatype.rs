@@ -1,12 +1,4 @@
-use super::{
-    FarneseInternal,
-    LLVMAlloca,
-    LLVMType,
-    MethodHelper, 
-    Module,
-    StructHelper, 
-    Symbol
-};
+use super::{FarneseInternal, LLVMAlloca, LLVMType, MethodHelper, Module, StructHelper, Symbol};
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
 use inkwell::types::BasicMetadataTypeEnum;
@@ -21,7 +13,7 @@ pub struct DataType {
     pub supertype: Symbol,
     pub is_abstract: bool,
     pub is_mutable: bool,
-    pub is_primitive: bool
+    pub is_primitive: bool,
 }
 
 impl<'a, 'b> DataType {
@@ -32,7 +24,7 @@ impl<'a, 'b> DataType {
         is_mutable: bool,
         is_primitive: bool,
         field_names: Vec<Symbol>,
-        field_types: Box<Vec<DataType>>
+        field_types: Box<Vec<DataType>>,
     ) -> Self {
         Self {
             field_names: field_names,
@@ -41,7 +33,7 @@ impl<'a, 'b> DataType {
             supertype: supertype,
             is_abstract: is_abstract,
             is_mutable: is_mutable,
-            is_primitive: is_primitive
+            is_primitive: is_primitive,
         }
     }
 
@@ -51,27 +43,34 @@ impl<'a, 'b> DataType {
         let ir_val_type = match self.name.name() {
             "Float32" => context.i32_type().try_into().unwrap(),
             "Float64" => context.f64_type().try_into().unwrap(),
-            "Int32"   => context.i32_type().try_into().unwrap(),
-            "Int64"   => context.i64_type().try_into().unwrap(),
-            _ => panic!("Unsupported type {}", self.name.name())
+            "Int32" => context.i32_type().try_into().unwrap(),
+            "Int64" => context.i64_type().try_into().unwrap(),
+            _ => panic!("Unsupported type {}", self.name.name()),
         };
         ir_val_type
     }
 
     pub fn from_str(
-        name: &str, 
-        supertype: &str, is_abstract: bool, is_mutable: bool, is_primitive: bool,
+        name: &str,
+        supertype: &str,
+        is_abstract: bool,
+        is_mutable: bool,
+        is_primitive: bool,
         field_names: Vec<String>,
-        field_types: Box<Vec<DataType>>
+        field_types: Box<Vec<DataType>>,
     ) -> Self {
         let field_names = field_names
             .iter()
             .map(|x| Symbol::new(x))
             .collect::<Vec<_>>();
         Self::new(
-            Symbol::new(name), Symbol::new(supertype), 
-            is_abstract, is_mutable, is_primitive,
-            field_names, field_types
+            Symbol::new(name),
+            Symbol::new(supertype),
+            is_abstract,
+            is_mutable,
+            is_primitive,
+            field_names,
+            field_types,
         )
     }
 
@@ -82,13 +81,29 @@ impl<'a, 'b> DataType {
     pub fn new_abstract_type(name: &str, supertype: &str) -> Self {
         let field_names = Vec::<Symbol>::new();
         let field_types = Box::new(Vec::<DataType>::new());
-        Self::new(Symbol::new(name), Symbol::new(supertype), true, false, false, field_names, field_types)
+        Self::new(
+            Symbol::new(name),
+            Symbol::new(supertype),
+            true,
+            false,
+            false,
+            field_names,
+            field_types,
+        )
     }
 
     pub fn new_primitive_type(name: &str, supertype: &str, _bits: u32) -> Self {
         let field_names = Vec::<Symbol>::new();
         let field_types = Box::new(Vec::<DataType>::new());
-        Self::new(Symbol::new(name), Symbol::new(supertype), false, false, true, field_names, field_types)
+        Self::new(
+            Symbol::new(name),
+            Symbol::new(supertype),
+            false,
+            false,
+            true,
+            field_names,
+            field_types,
+        )
     }
 }
 
@@ -100,10 +115,7 @@ impl fmt::Display for DataType {
         writeln!(f, "  Is abstract? = {}", self.is_abstract).unwrap();
         writeln!(f, "  Is mutable?  = {}", self.is_mutable).unwrap();
         writeln!(f, "  Is primitive = {}", self.is_primitive).unwrap();
-        let field_type_names: Vec<_> = self.field_types
-            .iter()
-            .map(|x| x.name.name())
-            .collect();
+        let field_type_names: Vec<_> = self.field_types.iter().map(|x| x.name.name()).collect();
         writeln!(f, "  Fields       = {:?}", field_type_names)
     }
 }
@@ -113,17 +125,16 @@ impl<'a, 'b> FarneseInternal<'a> for DataType {
     fn create_opaque_type(&self, module: &Module<'a>) -> () {
         let context = module.get_context();
         let sym_type = module.get_struct_type("Symbol");
-        let opaque_type = context
-            .opaque_struct_type("DataType");
+        let opaque_type = context.opaque_struct_type("DataType");
         opaque_type.set_body(
             &[
                 sym_type.ptr_type(AddressSpace::default()).into(),
-                opaque_type.ptr_type(AddressSpace::default()).into()
+                opaque_type.ptr_type(AddressSpace::default()).into(),
             ],
-            false
+            false,
         );
     }
- 
+
     fn create_new_method(&self, module: &Module<'a>) {
         let symbol = module.get_struct_type("Symbol");
         let datatype = module.get_struct_type("DataType");
@@ -132,10 +143,8 @@ impl<'a, 'b> FarneseInternal<'a> for DataType {
         let context = module.get_context();
         let builder = context.create_builder();
 
-        let func = datatype_ptr_type.fn_type(&[
-            symbol_ptr_type.into(),
-            datatype_ptr_type.into()
-        ], false);
+        let func =
+            datatype_ptr_type.fn_type(&[symbol_ptr_type.into(), datatype_ptr_type.into()], false);
         let func = module.add_function("Datatype", func, None);
         let entry = context.append_basic_block(func, "entry");
         builder.position_at_end(entry);
@@ -157,9 +166,7 @@ impl<'a, 'b> FarneseInternal<'a> for DataType {
         let datatype_ptr_type = datatype.ptr_type(AddressSpace::default());
 
         // create get_name function
-        let func = symbol_ptr_type.fn_type(&[
-            datatype_ptr_type.into()
-        ], false);
+        let func = symbol_ptr_type.fn_type(&[datatype_ptr_type.into()], false);
         let func = module.add_function("name", func, None);
         let entry = context.append_basic_block(func, "entry");
         builder.position_at_end(entry);
@@ -169,9 +176,7 @@ impl<'a, 'b> FarneseInternal<'a> for DataType {
         let _ = builder.build_return(Some(&field_ptr));
 
         // create get supertype function
-        let func = datatype_ptr_type.fn_type(&[
-            datatype_ptr_type.into()
-        ], false);
+        let func = datatype_ptr_type.fn_type(&[datatype_ptr_type.into()], false);
         let func = module.add_function("supertype", func, None);
         let entry = context.append_basic_block(func, "entry");
         builder.position_at_end(entry);
@@ -221,9 +226,9 @@ impl<'a> LLVMType<'a> for DataType {
 
 #[cfg(test)]
 mod tests {
-    use crate::{DataType, LLVMPrintf};
-    use crate::test_utils::TestHelper;
     use super::*;
+    use crate::test_utils::TestHelper;
+    use crate::{DataType, LLVMPrintf};
     use inkwell::context::Context;
 
     #[test]
@@ -238,14 +243,19 @@ mod tests {
         let field_names = Vec::<Symbol>::new();
         let field_types = Box::new(Vec::<DataType>::new());
         let datatype = DataType::new(
-            sym.clone(), sym_super, 
-            false, false, false, 
-            field_names, field_types
+            sym.clone(),
+            sym_super,
+            false,
+            false,
+            false,
+            field_names,
+            field_types,
         );
         let ptr = datatype.emit_ir_alloca(&builder, &tester.module);
 
         let func = tester.module.get_function("name");
-        let _ = builder.build_call(func, &[ptr.into()], "call_name")
+        let _ = builder
+            .build_call(func, &[ptr.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -254,7 +264,8 @@ mod tests {
         let _ = sym.emit_ir_printf(&builder, &tester.module);
 
         let func = tester.module.get_function("supertype");
-        let func_result = builder.build_call(func, &[ptr.into()], "call_supertype")
+        let func_result = builder
+            .build_call(func, &[ptr.into()], "call_supertype")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -262,7 +273,8 @@ mod tests {
             .into_pointer_value();
 
         let func = tester.module.get_function("name");
-        let _ = builder.build_call(func, &[func_result.into()], "call_name")
+        let _ = builder
+            .build_call(func, &[func_result.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -276,14 +288,19 @@ mod tests {
         let field_names = Vec::<Symbol>::new();
         let field_types = Box::new(Vec::<DataType>::new());
         let datatype = DataType::new(
-            sym.clone(), sym_super, 
-            false, false, false, 
-            field_names, field_types
+            sym.clone(),
+            sym_super,
+            false,
+            false,
+            false,
+            field_names,
+            field_types,
         );
         let ptr = datatype.emit_ir_alloca(&builder, &tester.module);
 
         let func = tester.module.get_function("name");
-        let _ = builder.build_call(func, &[ptr.into()], "call_name")
+        let _ = builder
+            .build_call(func, &[ptr.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -292,7 +309,8 @@ mod tests {
         let _ = sym.emit_ir_printf(&builder, &tester.module);
 
         let func = tester.module.get_function("supertype");
-        let func_result = builder.build_call(func, &[ptr.into()], "call_supertype")
+        let func_result = builder
+            .build_call(func, &[ptr.into()], "call_supertype")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -300,7 +318,8 @@ mod tests {
             .into_pointer_value();
 
         let func = tester.module.get_function("name");
-        let _ = builder.build_call(func, &[func_result.into()], "call_name")
+        let _ = builder
+            .build_call(func, &[func_result.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -314,14 +333,19 @@ mod tests {
         let field_names = Vec::<Symbol>::new();
         let field_types = Box::new(Vec::<DataType>::new());
         let datatype = DataType::new(
-            sym.clone(), sym_super, 
-            false, false, false, 
-            field_names, field_types
+            sym.clone(),
+            sym_super,
+            false,
+            false,
+            false,
+            field_names,
+            field_types,
         );
         let ptr = datatype.emit_ir_alloca(&builder, &tester.module);
 
         let func = tester.module.get_function("name");
-        let _ = builder.build_call(func, &[ptr.into()], "call_name")
+        let _ = builder
+            .build_call(func, &[ptr.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -330,7 +354,8 @@ mod tests {
         let _ = sym.emit_ir_printf(&builder, &tester.module);
 
         let func = tester.module.get_function("supertype");
-        let func_result = builder.build_call(func, &[ptr.into()], "call_supertype")
+        let func_result = builder
+            .build_call(func, &[ptr.into()], "call_supertype")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -338,7 +363,8 @@ mod tests {
             .into_pointer_value();
 
         let func = tester.module.get_function("name");
-        let _ = builder.build_call(func, &[func_result.into()], "call_name")
+        let _ = builder
+            .build_call(func, &[func_result.into()], "call_name")
             .unwrap()
             .try_as_basic_value()
             .left()

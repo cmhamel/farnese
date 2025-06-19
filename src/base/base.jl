@@ -1,6 +1,17 @@
 module Base
 
-abstract type Any <: Any end
+export 
+  # very basic stuff
+  Any, DataType, Symbol
+  # other stuff
+  Number, Real, AbstractFloat,
+  Integer, Signed, Unsigned,
+  Float64,
+  AbstractChar, Char,
+  Int64,
+  Nothing
+
+# abstract type Any <: Any end
 # abstract type Type{T} end
 # abstract type Vararg{T} end
 
@@ -36,23 +47,5 @@ primitive type Int64   <: Signed   64 end
 struct Nothing
 end
 
-struct Pair
-  a
-  b
-end
 
-struct FloatPair
-  a::Float64
-  b::Float64
-end
-
-function add(a::Int64, b::Int64)::Int64
-    a + b
-end
-
-function main()
-a = 1
-b = 2
-c = add(a::Int64, b::Int64)
-end
 end # module

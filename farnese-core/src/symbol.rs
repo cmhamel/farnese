@@ -1,16 +1,12 @@
-use super::{FarneseInternal, LLVMAlloca, LLVMPrintf, Module};
+use super::{FarneseInternal, LLVMAlloca, Module};
 // use dashmap::DashMap;
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
-use inkwell::values::{
-    BasicMetadataValueEnum,
-    CallSiteValue, 
-    PointerValue
-};
-use std::collections::hash_map::DefaultHasher;
-use std::fmt::{self, Display, Formatter};
+use inkwell::values::PointerValue;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::ffi::CString;
+use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
 // use std::sync::atomic::{AtomicUsize, Ordering};
@@ -19,16 +15,16 @@ use std::sync::{Arc, RwLock};
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Symbol {
     hash: i64,
-    name: String
+    name: String,
 }
 
 impl<'a> Symbol {
-  /// creates new symbol from a borrowed string
+    /// creates new symbol from a borrowed string
     pub fn new(name: &str) -> Self {
         let hash = Self::hash_name(name);
         Self {
             hash: hash,
-            name: name.to_owned()
+            name: name.to_owned(),
         }
     }
 
@@ -37,7 +33,7 @@ impl<'a> Symbol {
         let hash = Self::hash_name(&name);
         Self {
             hash: hash,
-            name: name
+            name: name,
         }
     }
 
@@ -50,7 +46,7 @@ impl<'a> Symbol {
     }
 
     /// gets the hash TODO chanage to get_hash
-        pub fn hash(&self) -> i64 {
+    pub fn hash(&self) -> i64 {
         self.hash
     }
 
@@ -70,16 +66,15 @@ impl Display for Symbol {
 impl<'a> FarneseInternal<'a> for Symbol {
     fn create_opaque_type(&self, module: &Module<'a>) {
         let context = module.get_context();
-        let opaque_type = context
-            .opaque_struct_type("Symbol");
+        let opaque_type = context.opaque_struct_type("Symbol");
         opaque_type.set_body(
             &[
                 // context.i8_type().ptr_type(AddressSpace::default()).into(),
                 // opaque_type.ptr_type(AddressSpace::default()).into()
                 context.i64_type().into(),
-                context.i8_type().ptr_type(AddressSpace::default()).into()
+                context.i8_type().ptr_type(AddressSpace::default()).into(),
             ],
-            false
+            false,
         );
     }
 
@@ -96,11 +91,12 @@ impl<'a> FarneseInternal<'a> for Symbol {
 
         let sym_ptr = sym.emit_ir_alloca(&builder, &module);
         let supertype_ptr = module.get_global("Any").as_pointer_value();
-        let func_result = builder.build_call(
-            module.get_function("Datatype"),
-            &[sym_ptr.into(), supertype_ptr.into()],
-            ""
-        )
+        let func_result = builder
+            .build_call(
+                module.get_function("Datatype"),
+                &[sym_ptr.into(), supertype_ptr.into()],
+                "",
+            )
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -109,13 +105,9 @@ impl<'a> FarneseInternal<'a> for Symbol {
         let _ = builder.build_return(Some(&func_result));
     }
 
-    fn create_get_methods(&self, _module: &Module<'a>) {
+    fn create_get_methods(&self, module: &Module<'a>) {}
 
-    }
-
-    fn create_new_method(&self, _module: &Module<'a>) {
-
-    }
+    fn create_new_method(&self, _module: &Module<'a>) {}
 }
 
 impl<'a, 'b> LLVMAlloca<'a, 'b> for Symbol {
@@ -124,35 +116,46 @@ impl<'a, 'b> LLVMAlloca<'a, 'b> for Symbol {
         let i8_type = context.i8_type();
         let sym_str = CString::new(self.name.clone()).unwrap();
         let sym_bytes = sym_str.as_bytes_with_nul();
-        
+
         // let size_val = context.i64_type().const_int(sym_bytes.len() as u64, false);
-        let sym_ptr = builder.build_alloca(i8_type.array_type(sym_bytes.len() as u32), "stack_sym").unwrap();
+        let sym_ptr = builder
+            .build_alloca(i8_type.array_type(sym_bytes.len() as u32), "stack_sym")
+            .unwrap();
         for (i, &b) in sym_bytes.iter().enumerate() {
             let gep = unsafe {
-                builder.build_gep(sym_ptr, &[
-                        context.i32_type().const_int(0, false), 
-                        context.i32_type().const_int(i as u64, false)
-                    ], 
-                    &format!("idx_{}", i)
+                builder.build_gep(
+                    sym_ptr,
+                    &[
+                        context.i32_type().const_int(0, false),
+                        context.i32_type().const_int(i as u64, false),
+                    ],
+                    &format!("idx_{}", i),
                 )
-            }.unwrap();
+            }
+            .unwrap();
             let _ = builder.build_store(gep, i8_type.const_int(b as u64, false));
         }
 
         // now make a sym_struct
         let sym_ptr_ptr = unsafe {
             builder.build_in_bounds_gep(
-                sym_ptr, 
-                &[context.i32_type().const_zero(), context.i32_type().const_zero()], 
-                "str_ptr"
+                sym_ptr,
+                &[
+                    context.i32_type().const_zero(),
+                    context.i32_type().const_zero(),
+                ],
+                "str_ptr",
             )
-        }.unwrap();
+        }
+        .unwrap();
         let sym_type = module.get_struct_type("Symbol");
         let ptr = builder.build_alloca(sym_type, "").unwrap();
 
         // set symbol hash
         let field_ptr = builder.build_struct_gep(ptr, 0, "").unwrap();
-        let hash = context.i64_type().const_int((self.hash as u64).try_into().unwrap(), true);
+        let hash = context
+            .i64_type()
+            .const_int((self.hash as u64).try_into().unwrap(), true);
         let _ = builder.build_store(field_ptr, hash);
 
         // set symbol string
@@ -160,41 +163,6 @@ impl<'a, 'b> LLVMAlloca<'a, 'b> for Symbol {
         let _ = builder.build_store(field_ptr, sym_ptr_ptr);
 
         ptr
-    }
-}
-
-impl<'a, 'b> LLVMPrintf<'a, 'b> for Symbol {
-    fn emit_ir_printf(
-        &self, 
-        builder: &'b Builder<'a>, 
-        module: &Module<'a>
-    ) -> CallSiteValue<'a> {
-        let context = module.get_context();
-        
-        // setup format string
-        let format_string = context.const_string(b"%s\0", false);
-        let ptr = builder.build_alloca(format_string.get_type(), "").unwrap();
-        let _ = builder.build_store(ptr, format_string);
-        let gep_ptr = unsafe { builder.build_in_bounds_gep(ptr, &[
-            context.i32_type().const_zero(),
-            context.i32_type().const_zero(),
-          ], "").unwrap() };
-        
-        // stack allocate the symbol here so we don't need
-        // to rely on a point
-        let func_args: Vec<BasicMetadataValueEnum<'a>> = vec![
-            gep_ptr.into(),
-            self.emit_ir_alloca(builder, module).into()
-        ];
-
-        // fetch the second field
-        // let field_ptr = builder.build_gep()
-        let func_result = builder.build_call(
-            module.get_function("printf"),
-            &func_args,
-            ""
-        ).unwrap();
-        func_result
     }
 }
 
@@ -223,7 +191,10 @@ impl SymbolTable {
         *ctr += 1;
         // let info = Symbol { name: name.to_string(), id };
         // let info = Symbol::new()
-        let info = Symbol { name: name.to_string(), hash: id };
+        let info = Symbol {
+            name: name.to_string(),
+            hash: id,
+        };
         table.insert(name.to_string(), info.clone());
         info
     }
@@ -304,8 +275,8 @@ impl SymbolTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::Core;
     use super::*;
+    use crate::Core;
     use inkwell::AddressSpace;
     use inkwell::context::Context;
     use std::ffi::CString;
@@ -320,7 +291,6 @@ mod tests {
     fn test_symbol_table() {
         let sym_table = SymbolTable::new();
         let _ = sym_table.intern("DataType");
-
     }
 
     #[test]
@@ -340,10 +310,22 @@ mod tests {
         // Intern a symbol
         let sym = symbol_table.intern("hello_world");
         let sym_str = CString::new(symbol_table.get_name(sym.hash).unwrap()).unwrap();
-        let sym_global = module.add_global(context.i8_type().array_type((sym_str.as_bytes_with_nul().len()) as u32), None, "sym_str");
-        sym_global.set_initializer(&context.i8_type().const_array(
-            &sym_str.as_bytes_with_nul().iter().map(|&b| context.i8_type().const_int(b as u64, false)).collect::<Vec<_>>()
-        ));
+        let sym_global = module.add_global(
+            context
+                .i8_type()
+                .array_type((sym_str.as_bytes_with_nul().len()) as u32),
+            None,
+            "sym_str",
+        );
+        sym_global.set_initializer(
+            &context.i8_type().const_array(
+                &sym_str
+                    .as_bytes_with_nul()
+                    .iter()
+                    .map(|&b| context.i8_type().const_int(b as u64, false))
+                    .collect::<Vec<_>>(),
+            ),
+        );
 
         // Printf function declaration
         let i8_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
@@ -352,16 +334,45 @@ mod tests {
 
         // Format string
         let fmt = CString::new("Symbol: %s\n").unwrap();
-        let fmt_global = module.add_global(context.i8_type().array_type((fmt.as_bytes_with_nul().len()) as u32), None, "fmt");
-        fmt_global.set_initializer(&context.i8_type().const_array(
-            &fmt.as_bytes_with_nul().iter().map(|&b| context.i8_type().const_int(b as u64, false)).collect::<Vec<_>>()
-        ));
+        let fmt_global = module.add_global(
+            context
+                .i8_type()
+                .array_type((fmt.as_bytes_with_nul().len()) as u32),
+            None,
+            "fmt",
+        );
+        fmt_global.set_initializer(
+            &context.i8_type().const_array(
+                &fmt.as_bytes_with_nul()
+                    .iter()
+                    .map(|&b| context.i8_type().const_int(b as u64, false))
+                    .collect::<Vec<_>>(),
+            ),
+        );
 
         let fmt_ptr = unsafe {
-            builder.build_gep(fmt_global.as_pointer_value(), &[context.i32_type().const_zero(), context.i32_type().const_zero()], "fmt_ptr").unwrap()
+            builder
+                .build_gep(
+                    fmt_global.as_pointer_value(),
+                    &[
+                        context.i32_type().const_zero(),
+                        context.i32_type().const_zero(),
+                    ],
+                    "fmt_ptr",
+                )
+                .unwrap()
         };
         let sym_ptr = unsafe {
-            builder.build_gep(sym_global.as_pointer_value(), &[context.i32_type().const_zero(), context.i32_type().const_zero()], "sym_ptr").unwrap()
+            builder
+                .build_gep(
+                    sym_global.as_pointer_value(),
+                    &[
+                        context.i32_type().const_zero(),
+                        context.i32_type().const_zero(),
+                    ],
+                    "sym_ptr",
+                )
+                .unwrap()
         };
 
         let _ = builder.build_call(printf, &[fmt_ptr.into(), sym_ptr.into()], "call_printf");

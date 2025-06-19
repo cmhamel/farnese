@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+farnese-compiler = { path = "../farnese-compiler" }
+farnese-core = { path = "../farnese-core" }
+farnese-lexer = { path = "../farnese-lexer" }
+inkwell = { version = "0.6.0", features = ["llvm14-0"] }
 rustyline = { version = "15.0.0" }
 spinners = { version = "4.1.1" }
 termion = { version = "3.0.0" }

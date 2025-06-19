@@ -1,24 +1,12 @@
 use super::{DataType, Symbol};
 use inkwell::{
-    self, 
-    AddressSpace,
+    self, AddressSpace, OptimizationLevel,
     builder::Builder,
     context::Context,
-    module::{
-        self,
-        FunctionIterator,
-        Linkage
-    },
-    types::{
-        FunctionType,
-        IntType,
-        PointerType,
-        StructType
-    },
-    values::{
-        FunctionValue,
-        GlobalValue
-    }
+    execution_engine::ExecutionEngine,
+    module::{self, FunctionIterator, Linkage},
+    types::{FunctionType, IntType, PointerType, StructType},
+    values::{FunctionValue, GlobalValue},
 };
 use std::collections::HashMap;
 
@@ -31,7 +19,6 @@ type MethodTable = HashMap<Symbol, (ArgTypes, ReturnType)>;
 // type Methods = HashMap<Symbol, Vec<
 type Types = HashMap<Symbol, DataType>;
 
-
 #[derive(Clone, Debug)]
 pub struct Module<'a> {
     context: &'a Context,
@@ -40,7 +27,7 @@ pub struct Module<'a> {
     methods: MethodTable,
     module: module::Module<'a>,
     name: Symbol,
-    types: Types
+    types: Types,
 }
 
 impl<'a> Module<'a> {
@@ -53,16 +40,12 @@ impl<'a> Module<'a> {
 
         // need to add a few basic C methods to all modules I guess
         // TODO eventually move this to funcs that are stored in the Module type
-        let printf_type = context
-            .i8_type()
-            .fn_type(&[
-                    context.i8_type().ptr_type(AddressSpace::default()).into()
-                ], 
-                true
-            );
+        let printf_type = context.i8_type().fn_type(
+            &[context.i8_type().ptr_type(AddressSpace::default()).into()],
+            true,
+        );
 
-        let _ = module
-            .add_function("printf", printf_type, Some(Linkage::External));
+        let _ = module.add_function("printf", printf_type, Some(Linkage::External));
 
         Self {
             context: context,
@@ -70,19 +53,24 @@ impl<'a> Module<'a> {
             methods: methods,
             module: module,
             name: symbol,
-            types: types
+            types: types,
         }
     }
 
-    pub fn add_function(&self, name: &str, func: FunctionType<'a>, opt: Option<Linkage>) -> FunctionValue<'a> {
+    pub fn add_function(
+        &self,
+        name: &str,
+        func: FunctionType<'a>,
+        opt: Option<Linkage>,
+    ) -> FunctionValue<'a> {
         self.module.add_function(name, func, opt)
     }
 
     pub fn add_global(
-        &self, 
-        datatype: StructType<'a>, 
+        &self,
+        datatype: StructType<'a>,
         address_space: Option<AddressSpace>,
-        name: &str
+        name: &str,
     ) -> GlobalValue<'a> {
         self.module.add_global(datatype, address_space, name)
     }
@@ -91,18 +79,24 @@ impl<'a> Module<'a> {
         self.get_context().create_builder()
     }
 
+    pub fn create_jit_execution_engine(&self, opt_level: OptimizationLevel) -> ExecutionEngine {
+        self.module.create_jit_execution_engine(opt_level).unwrap()
+    }
+
     pub fn get_context(&self) -> &'a Context {
         &self.context
     }
 
     pub fn get_function(&self, name: &str) -> FunctionValue<'a> {
-        self.module.get_function(name)
-            .expect(
-                format!(
-                    "Function {} not found in module {}.\nAvailable functions are {:?}", 
-                    name, self.name, self.module.get_functions()
-                ).as_str()
+        self.module.get_function(name).expect(
+            format!(
+                "Function {} not found in module {}.\nAvailable functions are {:?}",
+                name,
+                self.name,
+                self.module.get_functions()
             )
+            .as_str(),
+        )
     }
 
     pub fn get_exports(&self) -> &Exports {
@@ -119,7 +113,9 @@ impl<'a> Module<'a> {
 
     pub fn get_type(&self, sym: &str) -> &DataType {
         let sym = Symbol::new(sym);
-        &self.types.get(&sym)
+        &self
+            .types
+            .get(&sym)
             .expect(format!("Type {} not found in module {}", sym, self.name).as_str())
     }
 
@@ -166,8 +162,10 @@ impl<'a> Module<'a> {
             // first try assuming this key is a type
             if self.types.contains_key(k) {
                 panic!(
-                    "Conflicting type {} in modules {} and {}", 
-                    k, self.name(), module.name()
+                    "Conflicting type {} in modules {} and {}",
+                    k,
+                    self.name(),
+                    module.name()
                 )
             } else {
                 // TODO note this will error if the type doesn't exist

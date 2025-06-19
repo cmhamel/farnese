@@ -156,11 +156,11 @@ ImportExpr = {
 UsingExpr = { 
   "using" ~ 
   (".." | ".")? ~
-  Identifier ~ 
-  (":" ~ (
-    (Identifier ~ ","?)* ~
-    NEWLINE
-  )*)
+  Identifier //~ 
+  //(":" ~ (
+  //  (Identifier ~ ","?)* ~
+  //  NEWLINE
+  //)*)
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -434,10 +434,13 @@ Float = @{
   ("." ~ ASCII_DIGIT*) ~
   (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)?
 }
+//String = @{
+//  "\"" ~
+//  RawIdentifier? ~
+//  "\""
+//}
 String = @{
-  "\"" ~
-  RawIdentifier? ~
-  "\""
+  "\"" ~ (!"\"" ~ ANY)* ~ "\""
 }
 SemiColonTuple = {
   "(" ~
