@@ -1,4 +1,7 @@
 /target
 Cargo.lock
 a.out
+*.bc
 *.ll
+*.o
+*.s
