@@ -1,5 +1,15 @@
 use farnese_core::{
-    Core, DataType, LLVMAlloca, LLVMPrintf, LLVMValue, MethodHelper, Module, Primitive, Symbol,
+    Core, 
+    DataType, 
+    LLVMAlloca, 
+    LLVMGlobal,
+    LLVMPrintf, 
+    LLVMValue, 
+    MethodHelper, 
+    Module, 
+    Primitive, 
+    SimpleVector,
+    Symbol,
 };
 use farnese_lexer::ast::{Node, Operator};
 use farnese_lexer::lexer;
@@ -85,7 +95,9 @@ impl<'a> Compiler<'a> {
     ) {
         match expr {
             Node::AbstractType { name, supertype } => {
+                // build type
                 let datatype = DataType::new_abstract_type(&name, &supertype);
+                datatype.emit_ir_global(module);
                 module.insert_type(datatype);
             }
             Node::AssignmentExpr { identifier, value } => {
@@ -126,7 +138,7 @@ impl<'a> Compiler<'a> {
                 // let val = x.emit_ir_value(module);
                 let val = match x {
                     Primitive::String(_) => x.emit_ir_alloca(&builder, module).into(),
-                    _ => x.emit_ir_value(module),
+                    _ => x.emit_ir_value(&builder, module),
                 };
                 let datatype = x.get_datatype();
                 self.stack.push((val.into(), datatype));
@@ -137,6 +149,7 @@ impl<'a> Compiler<'a> {
                 bits,
             } => {
                 let datatype = DataType::new_primitive_type(&name, &supertype, bits);
+                datatype.emit_ir_global(&module);
                 module.insert_type(datatype);
             }
             Node::StructType {
@@ -150,12 +163,14 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|x| Symbol::new(x))
                     .collect::<Vec<_>>();
-                let field_types = Box::new(
-                    field_types
-                        .iter()
-                        .map(|x| module.get_type(x).clone())
-                        .collect(),
-                );
+                let field_names = SimpleVector::new(field_names);
+                // TODO need to add generics
+                let field_parameters = SimpleVector::new(vec![]);
+                let field_types = field_types
+                    .iter()
+                    .map(|x| module.get_type(x).name().clone())
+                    .collect::<Vec<_>>();
+                let field_types = SimpleVector::new(field_types);
                 let datatype = DataType::new(
                     Symbol::new(&name),
                     Symbol::new(&supertype),
@@ -163,8 +178,10 @@ impl<'a> Compiler<'a> {
                     false,
                     false,
                     field_names,
+                    field_parameters,
                     field_types,
                 );
+                datatype.emit_ir_global(&module);
                 module.insert_type(datatype);
             }
             Node::Symbol(x) => {
@@ -202,9 +219,15 @@ impl<'a> Compiler<'a> {
             let func = module.add_function(&name, func, None);
             let entry = context.append_basic_block(func, "entry");
             builder.position_at_end(entry);
+            // let func = module.get_function("__init_datatypes");
+            // let _ = builder
+            //     .build_call(func, &[], "")
+            //     .unwrap();
+
             for expr in (*body).iter() {
                 self.compile_expr(&builder, module, expr.clone())
             }
+
             let return_val = return_type.const_int(0, false);
             let _ = builder.build_return(Some(&return_val));
             return;
@@ -337,15 +360,23 @@ impl<'a> Compiler<'a> {
         self.stack.push((func_result.into(), func_result_type));
     }
 
-    fn compile_module(&mut self, name: Symbol, exprs: Box<Vec<Node>>, context: &'a Context) {
+    fn compile_module(
+        &mut self, 
+        name: Symbol, 
+        exprs: Box<Vec<Node>>, 
+        context: &'a Context
+    ) -> Module<'a> {
         let mut module = Module::new(context, name.name());
         module.link(self.get_module("Core"));
+        // module.module().print_to_stderr();
         let builder = context.create_builder();
         for ast in exprs.iter() {
             self.compile_expr(&builder, &mut module, ast.clone());
         }
+        // module.create_init_datatypes();
         self.modules.insert(name.clone(), module.clone());
         let _ = module.print_to_file(format!("{}.ll", name.name()).as_str());
+        module
     }
 
     pub fn get_module(&self, name: &str) -> &Module<'a> {
@@ -361,17 +392,141 @@ impl<'a> Compiler<'a> {
         let ast: Vec<_> = lexer::parse_file(file_name).unwrap();
         let context = module.get_context();
         let builder = context.create_builder();
+        // module.create_init_datatypes();
         for node in ast {
             match node {
                 Node::Module { name, exprs } => {
-                    self.compile_module(Symbol::new(&name), exprs, &context)
+                    let _ = self.compile_module(Symbol::new(&name), exprs, &context);
                 }
                 _ => self.compile_expr(&builder, module, node),
             }
         }
+        // module.create_init_datatypes();
     }
 
     pub fn modules(&self) -> &HashMap<Symbol, Module<'a>> {
         &self.modules
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Compiler;
+    use farnese_core::{Any, LLVMAlloca, LLVMPrintf, LLVMValue, Module, Primitive};
+    use inkwell::builder::Builder;
+    use inkwell::context::Context;
+    use inkwell::OptimizationLevel;
+    use inkwell::values::BasicMetadataValueEnum;
+
+    fn start_test<'a>(context: &'a Context) -> (Builder<'a>, Compiler<'a>, Module<'a>) {
+        let builder = context.create_builder();
+        let mut module = Module::new(context, "__Test__");
+        // let mut base_module = Module::new(context, "Base");
+        let mut compiler = Compiler::new(&context);
+        compiler.include(&mut module, "../src/base/base.jl");
+        module.link(compiler.get_module("Base"));
+
+        let fn_type = context.void_type().fn_type(&[], false);
+        let func = module.add_function("__Test__", fn_type, None);
+        let entry = context.append_basic_block(func, "entry");
+        builder.position_at_end(entry);
+        // module.create_init_datatypes();
+        // let func = module.get_function("__init_datatypes");
+        // let _ = builder
+        //     .build_call(func, &[], "")
+        //     .unwrap();
+        (builder, compiler, module)
+    }
+
+    fn end_test<'a, 'b>(builder: &'b Builder<'a>) {
+        let _ = builder.build_return(None);
+    }
+
+    fn run_test<'a>(module: &Module<'a>) {
+        let engine = module
+            .module()
+            .create_jit_execution_engine(OptimizationLevel::None)
+            .unwrap();
+        let result = unsafe { engine.run_function(
+            module.get_function("__Test__"),
+            &[]
+        )};
+        println!("Result = {:?}", result)
+    }
+
+    // #[test]
+    // fn tests_compiler_init() {
+    //     let context = Context::create();
+    //     let _ = Compiler::new(&context);
+    // }
+
+    // #[test]
+    // fn test_compiler_primitives() {
+    //     let context = Context::create();
+    //     let (builder, _compiler, module) = start_test(&context);
+    //     let val: Primitive = (69 as i32).into();
+    //     let datatype = val.get_datatype();
+    //     let val = val.emit_ir_value(&builder, &module);
+    //     let val: BasicMetadataValueEnum = val.into();
+    //     let _ = (val, datatype).emit_ir_printf(&builder, &module);
+    //     println!("I think I need this?");
+    //     end_test(&builder);
+    //     run_test(&module);
+
+    //     let context = Context::create();
+    //     let (builder, _compiler, module) = start_test(&context);
+    //     let val: Primitive = (69 as i64).into();
+    //     let datatype = val.get_datatype();
+    //     let val = val.emit_ir_value(&builder, &module);
+    //     let val: BasicMetadataValueEnum = val.into();
+    //     let _ = (val, datatype).emit_ir_printf(&builder, &module);
+    //     println!("I think I need this?");
+    //     end_test(&builder);
+    //     run_test(&module);
+
+    //     let context = Context::create();
+    //     let (builder, _compiler, module) = start_test(&context);
+    //     let val: Primitive = (69.0 as f32).into();
+    //     let datatype = val.get_datatype();
+    //     let val = val.emit_ir_value(&builder, &module);
+    //     let val: BasicMetadataValueEnum = val.into();
+    //     let _ = (val, datatype).emit_ir_printf(&builder, &module);
+    //     println!("I think I need this?");
+    //     end_test(&builder);
+    //     run_test(&module);
+
+    //     let context = Context::create();
+    //     let (builder, _compiler, module) = start_test(&context);
+    //     let val: Primitive = (69.0 as f64).into();
+    //     let datatype = val.get_datatype();
+    //     let val = val.emit_ir_value(&builder, &module);
+    //     let val: BasicMetadataValueEnum = val.into();
+    //     let _ = (val, datatype).emit_ir_printf(&builder, &module);
+    //     println!("I think I need this?");
+    //     end_test(&builder);
+    //     run_test(&module);
+    // }
+
+    #[test]
+    fn test_compiler_any() {
+        let context = Context::create();
+        let (builder, compiler, module) = start_test(&context);
+        let val: Primitive = (69 as i64).into();
+        let datatype = val.get_datatype();
+        // println!("Global.Core = {:?}", compiler.get_module("Core").get_globals());
+        // println!("Global = {:?}", module.module().get_globals());
+        // println!("Global.Base = {:?}", compiler.get_module("Base").get_globals());
+        for glob in module.get_globals() {
+            println!("Glob = {:?}", glob)
+        }
+        let val = Any::new(datatype, val.into());
+        // let val = val.emit_ir_alloca(&builder, &module);
+        // let val: BasicMetadataValueEnum = val.into();
+        // let _ = (val, datatype).emit_ir_printf(&builder, &module);
+        // println!("I think I need this?");
+        end_test(&builder);
+        run_test(&module);
+
+        module.module().print_to_stderr();
     }
 }

@@ -15,7 +15,9 @@ use inkwell::targets::{
     Target,
     TargetMachine
 };
-use std::path::Path;
+use std::env;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Clone, Debug, Parser)]
 #[command(arg_required_else_help = true, version)]
@@ -39,6 +41,8 @@ enum Commands {
         assembly_file: Option<String>,
         #[arg(long, short, value_name = "LLVM BITCODE FILE")]
         bitcode_file: Option<String>,
+        #[arg(long, short, value_name = "EXE FILE")]
+        exe_file: Option<String>,
         #[arg(long, short, value_name = "LLVM IR FILE")]
         llvm_ir_file: Option<String>,
         #[arg(long, short, value_name = "LLVM OBJECT FILE")]
@@ -101,6 +105,7 @@ fn main() {
             input,
             assembly_file,
             bitcode_file,
+            exe_file,
             llvm_ir_file,
             object_file,
             optimization_level
@@ -108,9 +113,9 @@ fn main() {
             let context = Context::create();
 
             let mut compiler = Compiler::new(&context);
-            // let mut base_module = Module::new(&context, "Base");
-            // compiler.insert_module("Base", base_module.clone());
-            // compiler.include(&mut base_module, "src/base/base.jl");
+            let mut base_module = Module::new(&context, "Base");
+            compiler.insert_module("Base", base_module.clone());
+            compiler.include(&mut base_module, "src/base/base.jl");
             let mut main_module = Module::new(&context, "Main");
             compiler.insert_module("Main", main_module.clone());
             compiler.include(&mut main_module, &input);
@@ -158,7 +163,8 @@ fn main() {
             }
 
             match object_file {
-                Some(x) => {
+                Some(ref x) => {
+                    println!("Building object files");
                     for (name, module) in compiler.modules() {
                         let file_name_str = format!("{}.o", name.name());
                         let file_name = Path::new(&file_name_str);
@@ -167,6 +173,30 @@ fn main() {
                     }   
                     target_machine.write_to_file(&main_module.module(), FileType::Object, x.as_ref())
                         .unwrap();
+                },
+                _ => {}
+            }
+
+            match exe_file {
+                Some(x) => {
+                    println!("Building executable {}", x);
+                    let llvm_prefix = env::var("LLVM_SYS_140_PREFIX")
+                        .expect("LLVM_SYS_140_PREFIX environment variable not set");
+                    println!("llvm prefix = {}", llvm_prefix);
+                    // Construct path to clang binary
+                    let mut clang_path = PathBuf::from(llvm_prefix);
+                    clang_path.push("bin");
+                    clang_path.push("clang");
+
+                    // Run clang
+                    let status = Command::new(clang_path)
+                        .args(&["-o", &x, &object_file.unwrap()])
+                        .status()
+                        .expect("Failed to run clang");
+
+                    if !status.success() {
+                        panic!("Linking failed!");
+                    }
                 },
                 _ => {}
             }
