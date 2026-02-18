@@ -1,8 +1,15 @@
-use super::{FarneseInternal, LLVMAlloca, Module};
+use super::{
+    DataType, 
+    FarneseInternal, 
+    LLVMAlloca, 
+    LLVMGlobal,
+    Module,
+    SimpleVector
+};
 // use dashmap::DashMap;
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
-use inkwell::values::PointerValue;
+use inkwell::values::{GlobalValue, PointerValue};
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::ffi::CString;
@@ -14,7 +21,8 @@ use std::sync::{Arc, RwLock};
 /// base type, holds a unique has and a name
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Symbol {
-    hash: i64,
+    // hash: i64,
+    hash: u64,
     name: String,
 }
 
@@ -38,15 +46,15 @@ impl<'a> Symbol {
     }
 
     /// creates a hash
-    fn hash_name(name: &str) -> i64 {
+    fn hash_name(name: &str) -> u64 {
         let mut hasher = DefaultHasher::new();
         name.hash(&mut hasher);
-        let hash: i64 = hasher.finish() as i64;
+        let hash: u64 = hasher.finish() as u64;
         hash
     }
 
     /// gets the hash TODO chanage to get_hash
-    pub fn hash(&self) -> i64 {
+    pub fn hash(&self) -> u64 {
         self.hash
     }
 
@@ -64,105 +72,105 @@ impl Display for Symbol {
 }
 
 impl<'a> FarneseInternal<'a> for Symbol {
-    fn create_opaque_type(&self, module: &Module<'a>) {
+    fn create_datatype() -> DataType {
+        DataType::new(
+            Symbol::new("Symbol"),
+            Symbol::new("Any"),
+            false,
+            false,
+            false,
+            // TODO change below when we add generics
+            SimpleVector::new(vec![]),
+            SimpleVector::new(vec![]),
+            SimpleVector::new(vec![])
+        )
+    }
+    
+    fn create_new_method(_module: &Module<'a>) {
+        
+    }
+
+    fn create_opaque_type(module: &Module<'a>) {
         let context = module.get_context();
-        let opaque_type = context.opaque_struct_type("Symbol");
+        let _ = context.opaque_struct_type("Symbol");
+    }
+
+    fn set_opaque_type_initializer(module: &Module<'a>) {
+        let context = module.get_context();
+        let opaque_type = module.get_struct_type("Symbol");
         opaque_type.set_body(
             &[
-                // context.i8_type().ptr_type(AddressSpace::default()).into(),
-                // opaque_type.ptr_type(AddressSpace::default()).into()
                 context.i64_type().into(),
-                context.i8_type().ptr_type(AddressSpace::default()).into(),
+                context.ptr_type(AddressSpace::default()).into(),
             ],
             false,
         );
     }
-
-    fn create_datatype(&self, module: &Module<'a>) {
-        let context = module.get_context();
-        let builder = context.create_builder();
-        let sym = Symbol::new("Symbol");
-        let datatype = module.get_struct_type("DataType");
-        let datatype_ptr = datatype.ptr_type(AddressSpace::default());
-        let func = datatype_ptr.fn_type(&[], false);
-        let func = module.add_function("__DataType_Symbol", func, None);
-        let entry = context.append_basic_block(func, "entry");
-        builder.position_at_end(entry);
-
-        let sym_ptr = sym.emit_ir_alloca(&builder, &module);
-        let supertype_ptr = module.get_global("Any").as_pointer_value();
-        let func_result = builder
-            .build_call(
-                module.get_function("Datatype"),
-                &[sym_ptr.into(), supertype_ptr.into()],
-                "",
-            )
-            .unwrap()
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_pointer_value();
-        let _ = builder.build_return(Some(&func_result));
-    }
-
-    fn create_get_methods(&self, module: &Module<'a>) {}
-
-    fn create_new_method(&self, _module: &Module<'a>) {}
 }
 
 impl<'a, 'b> LLVMAlloca<'a, 'b> for Symbol {
     fn emit_ir_alloca(&self, builder: &'b Builder<'a>, module: &Module<'a>) -> PointerValue<'a> {
         let context = module.get_context();
-        let i8_type = context.i8_type();
-        let sym_str = CString::new(self.name.clone()).unwrap();
-        let sym_bytes = sym_str.as_bytes_with_nul();
 
-        // let size_val = context.i64_type().const_int(sym_bytes.len() as u64, false);
-        let sym_ptr = builder
-            .build_alloca(i8_type.array_type(sym_bytes.len() as u32), "stack_sym")
-            .unwrap();
-        for (i, &b) in sym_bytes.iter().enumerate() {
-            let gep = unsafe {
-                builder.build_gep(
-                    sym_ptr,
-                    &[
-                        context.i32_type().const_int(0, false),
-                        context.i32_type().const_int(i as u64, false),
-                    ],
-                    &format!("idx_{}", i),
-                )
-            }
-            .unwrap();
-            let _ = builder.build_store(gep, i8_type.const_int(b as u64, false));
-        }
-
-        // now make a sym_struct
-        let sym_ptr_ptr = unsafe {
-            builder.build_in_bounds_gep(
-                sym_ptr,
-                &[
-                    context.i32_type().const_zero(),
-                    context.i32_type().const_zero(),
-                ],
-                "str_ptr",
-            )
-        }
-        .unwrap();
         let sym_type = module.get_struct_type("Symbol");
         let ptr = builder.build_alloca(sym_type, "").unwrap();
+        let glob = builder.build_global_string_ptr(&self.name.clone(), "")
+            .unwrap()
+            .as_pointer_value();
 
         // set symbol hash
-        let field_ptr = builder.build_struct_gep(ptr, 0, "").unwrap();
+        let i64_t = context.i64_type();
+        let field_ptr = builder.build_struct_gep(i64_t, ptr, 0, "").unwrap();
         let hash = context
             .i64_type()
             .const_int((self.hash as u64).try_into().unwrap(), true);
         let _ = builder.build_store(field_ptr, hash);
 
         // set symbol string
-        let field_ptr = builder.build_struct_gep(ptr, 1, "").unwrap();
-        let _ = builder.build_store(field_ptr, sym_ptr_ptr);
+        let field_ptr = builder.build_struct_gep(glob.get_type(), ptr, 1, "").unwrap();
+        // let _ = builder.build_store(field_ptr, sym_ptr_ptr);
+        let _ = builder.build_store(field_ptr, glob);
 
         ptr
+    }
+}
+
+impl<'a> LLVMGlobal<'a> for Symbol {
+    fn emit_ir_global(&self, module: &Module<'a>) -> GlobalValue<'a> {
+        let context = module.get_context();
+        let symbol_type = module.get_struct_type("Symbol");
+
+        let sym_name = format!("__Sym_{}", &self.name);
+
+        // setup necessary globals for symbol and datatype
+        let sym_glob = module.add_global(
+            symbol_type,
+            Some(AddressSpace::default()),
+            sym_name.as_str()
+        );
+
+        let name_str = context.const_string(
+            &CString::new(self.name.clone()).unwrap().as_bytes_with_nul(), 
+            true
+        );
+        // let glob = module.add_global(name_str.get_type(), None, format!("{}_str", &sym_name).as_str())
+        let name_glob = module.add_global(name_str.get_type(), None, "");
+        name_glob.set_initializer(&name_str);
+        let name_glob = name_glob
+            .as_pointer_value()
+            .const_cast(context.ptr_type(AddressSpace::default()));
+        let hash = context.i64_type().const_int(
+            self.hash().try_into().unwrap(),
+            false
+        );
+
+        let symbol_value = symbol_type.const_named_struct(&[
+            hash.into(),
+            name_glob.into()
+        ]);
+        sym_glob.set_initializer(&symbol_value);
+
+        sym_glob
     }
 }
 
@@ -193,13 +201,13 @@ impl SymbolTable {
         // let info = Symbol::new()
         let info = Symbol {
             name: name.to_string(),
-            hash: id,
+            hash: id as u64,
         };
         table.insert(name.to_string(), info.clone());
         info
     }
 
-    pub fn get_name(&self, id: i64) -> Option<String> {
+    pub fn get_name(&self, id: u64) -> Option<String> {
         let table = self.symbols.read().unwrap();
         for (k, v) in table.iter() {
             if v.hash == id {
@@ -209,74 +217,10 @@ impl SymbolTable {
         None
     }
 }
-// impl Display for Vec<Symbol> {
-//   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-//     write!(f, "[");
-//     for val in self.iter() {
-//       write!(f, "{}, ", val);
-//     }
-//     write!(f, "]\n");
-//   }
-// }
-
-/// symbol table of symbols that have unique hashes
-// #[derive(Debug)]
-// pub struct SymbolTable {
-//   table: DashMap<String, Arc<Symbol>>
-// }
-
-// impl SymbolTable {
-//   /// creates a new symbol table that is empty by default
-//   pub fn new() -> Self {
-//     Self {
-//       table: DashMap::new()
-//     }
-//   }
-
-//   /// pushes a new symbol, ensuring uniqueness.
-//   pub fn push(&self, name: &str) -> Arc<Symbol> {
-//     if let Some(existing) = self.table.get(name) {
-//       return Arc::clone(&existing);
-//     }
-
-//     let symbol = Arc::new(Symbol::new(name));
-//     self.table.insert(name.to_owned(), Arc::clone(&symbol));
-//     symbol
-//   }
-
-//   /// Looks up a symbol without adding it.
-//   pub fn lookup(&self, name: &str) -> Option<Arc<Symbol>> {
-//     self.table.get(name).map(|entry| Arc::clone(&entry))
-//   }
-// }
-
-// // probably need below for some thread safefty stuff
-// #[derive(Debug)]
-// pub struct UniqueSymbolGenerator {
-//   counter: AtomicUsize,
-//   table: SymbolTable,
-// }
-
-// impl UniqueSymbolGenerator {
-//   pub fn new() -> Self {
-//     Self {
-//       counter: AtomicUsize::new(0),
-//       table: SymbolTable::new(),
-//     }
-//   }
-
-//   /// Generates a unique symbol with a specified prefix.
-//   pub fn generate(&self, prefix: &str) -> Arc<Symbol> {
-//     let id = self.counter.fetch_add(1, Ordering::Relaxed);
-//     let name = format!("{}{}", prefix, id);
-//     self.table.push(&name)
-//   }
-// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Core;
     use inkwell::AddressSpace;
     use inkwell::context::Context;
     use std::ffi::CString;

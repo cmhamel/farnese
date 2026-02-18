@@ -4,8 +4,8 @@ use inkwell::{
     builder::Builder,
     context::Context,
     execution_engine::ExecutionEngine,
-    module::{self, FunctionIterator, Linkage},
-    types::{FunctionType, IntType, PointerType, StructType},
+    module::{self, FunctionIterator, GlobalIterator, Linkage},
+    types::{BasicType, FunctionType, IntType, PointerType, StructType},
     values::{FunctionValue, GlobalValue},
 };
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ pub struct Module<'a> {
     context: &'a Context,
     // dependencies: Vec<Symbol>,
     exports: Exports,
-    methods: MethodTable,
+    _methods: MethodTable,
     module: module::Module<'a>,
     name: Symbol,
     types: Types,
@@ -41,7 +41,7 @@ impl<'a> Module<'a> {
         // need to add a few basic C methods to all modules I guess
         // TODO eventually move this to funcs that are stored in the Module type
         let printf_type = context.i8_type().fn_type(
-            &[context.i8_type().ptr_type(AddressSpace::default()).into()],
+            &[context.ptr_type(AddressSpace::default()).into()],
             true,
         );
 
@@ -50,7 +50,7 @@ impl<'a> Module<'a> {
         Self {
             context: context,
             exports: exports,
-            methods: methods,
+            _methods: methods,
             module: module,
             name: symbol,
             types: types,
@@ -66,9 +66,9 @@ impl<'a> Module<'a> {
         self.module.add_function(name, func, opt)
     }
 
-    pub fn add_global(
+    pub fn add_global<T: BasicType<'a>>(
         &self,
-        datatype: StructType<'a>,
+        datatype: T,
         address_space: Option<AddressSpace>,
         name: &str,
     ) -> GlobalValue<'a> {
@@ -79,7 +79,7 @@ impl<'a> Module<'a> {
         self.get_context().create_builder()
     }
 
-    pub fn create_jit_execution_engine(&self, opt_level: OptimizationLevel) -> ExecutionEngine {
+    pub fn create_jit_execution_engine(&self, opt_level: OptimizationLevel) -> ExecutionEngine<'_> {
         self.module.create_jit_execution_engine(opt_level).unwrap()
     }
 
@@ -108,7 +108,12 @@ impl<'a> Module<'a> {
     }
 
     pub fn get_global(&self, name: &str) -> GlobalValue<'a> {
-        self.module.get_global(name).unwrap()
+        self.module.get_global(name)
+            .expect(format!("Failed to find global {} in {}", name, self.name()).as_str())
+    }
+
+    pub fn get_globals(&self) -> GlobalIterator<'a> {
+        self.module.get_globals()
     }
 
     pub fn get_type(&self, sym: &str) -> &DataType {
@@ -124,32 +129,58 @@ impl<'a> Module<'a> {
     }
 
     pub fn get_struct_type(&self, name: &str) -> StructType<'a> {
-        self.module.get_struct_type(name).unwrap()
+        self.module.get_struct_type(name)
+            .expect(format!("Failed attempting to get type {}", name).as_str())
     }
 
-    pub fn i8_type(&self) -> IntType {
+    pub fn i8_type(&self) -> IntType<'_> {
         self.context.i8_type()
     }
 
-    pub fn i8_ptr_type(&self) -> PointerType {
-        self.i8_type().ptr_type(AddressSpace::default())
+    pub fn i8_ptr_type(&self) -> PointerType<'_> {
+        self.get_context().ptr_type(AddressSpace::default())
     }
 
-    pub fn i32_type(&self) -> IntType {
+    pub fn i32_type(&self) -> IntType<'_> {
         self.context.i32_type()
     }
 
-    pub fn i32_ptr_type(&self) -> PointerType {
-        self.i32_type().ptr_type(AddressSpace::default())
+    pub fn i32_ptr_type(&self) -> PointerType<'_> {
+        self.get_context().ptr_type(AddressSpace::default())
     }
 
-    pub fn i64_type(&self) -> IntType {
+    pub fn i64_type(&self) -> IntType<'_> {
         self.context.i64_type()
     }
 
-    pub fn i64_ptr_type(&self) -> PointerType {
-        self.i64_type().ptr_type(AddressSpace::default())
+    pub fn i64_ptr_type(&self) -> PointerType<'_> {
+        self.get_context().ptr_type(AddressSpace::default())
     }
+
+    // pub fn create_init_datatypes(&self) {
+    //     let context = self.get_context();
+    //     let builder = context.create_builder();
+    //     let void_type = context.void_type();
+    //     let datatype_type = self.get_struct_type("DataType");
+    //     let symbol_type = self.get_struct_type("Symbol");
+    //     let func = void_type.fn_type(&[], false);
+    //     let func = self.add_function("__init_datatypes", func, None);
+    //     let entry = context.append_basic_block(func, "entry");
+    //     builder.position_at_end(entry);
+
+    //     for (k, v) in &self.types {
+    //         let glob_ptr = self.get_global(k.name())
+    //             .as_pointer_value();
+    //         let type_ptr = builder
+    //             .build_struct_gep(glob_ptr, 0, "")
+    //             .unwrap();
+    //         // glob_ptr.set_initializer
+    //         // let sym = k.emit_ir_alloca(&builder, &self);
+    //         // let _ = glob_ptr.set_nth_field(&builder, &self, sym);
+    //     }
+
+    //     let _ = builder.build_return(None);
+    // }
 
     pub fn insert_type(&mut self, datatype: DataType) {
         self.types.insert(datatype.name().clone(), datatype);
@@ -157,7 +188,6 @@ impl<'a> Module<'a> {
 
     pub fn link(&mut self, module: &Module<'a>) {
         self.module.link_in_module(module.module.clone()).unwrap();
-
         for k in module.get_exports() {
             // first try assuming this key is a type
             if self.types.contains_key(k) {
@@ -170,7 +200,7 @@ impl<'a> Module<'a> {
             } else {
                 // TODO note this will error if the type doesn't exist
                 // need to change this to use a Result<>
-                self.insert_type(module.get_type(k.name()).clone())
+                self.insert_type(module.get_type(k.name()).clone());
             }
 
             // TODO need to handle globals, functions, etc.

@@ -5,3 +5,5 @@ a.out
 *.ll
 *.o
 *.s
+julia/
+target/

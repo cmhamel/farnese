@@ -1,17 +1,11 @@
-use crate::ast::{Node, Operator, Primitive, Symbol};
+use crate::ast::{Node, Operator, Symbol};
 use crate::parser::{FarneseParser, Rule};
+use farnese_core_v3::primitives::Primitive;
 use std::fs;
 
 pub fn parse_file(file_name: &str) -> std::result::Result<Vec<Node>, pest::error::Error<Rule>> {
     let source = fs::read_to_string(file_name)
         .expect(format!("Failed reading file: {}", file_name).as_str());
-    // let pairs = FarneseParser::from_source(&source);
-
-    // for pair in pairs {
-    //   let ast_temp = create_ast(&pair);
-    //   ast.push(ast_temp);
-    // }
-    // Ok(ast)
     parse_source(&source)
 }
 
@@ -41,8 +35,19 @@ pub fn create_ast(pair: &pest::iterators::Pair<Rule>) -> Node {
                 .iter()
                 .filter(|p| matches!(p.as_rule(), Rule::SuperType))
                 .next();
+            // TODO need to eventually make supertype a type struct or something like that
             let supertype = match supertype {
-                Some(x) => x.as_str().to_string(),
+                Some(x) => {
+                    let temp = x.clone()
+                        .into_inner()//.collect::<Vec<_>>()
+                        .next().unwrap();
+                    match temp.as_rule() {
+                        Rule::Identifier => {
+                            temp.as_str().to_string()
+                        },
+                        _ => panic!("Not supported")
+                    }
+                }
                 None => "Any".to_string(),
             };
             Node::AbstractType {
@@ -388,6 +393,7 @@ pub fn create_ast(pair: &pest::iterators::Pair<Rule>) -> Node {
         }
         Rule::Primitive => create_primitive_ast(pair),
         Rule::PrimitiveType => {
+            // TODO supertype will currently fail if... something?
             let parts = pair.clone().into_inner();
             let name = parts.clone().collect::<Vec<_>>()[0].as_str().to_string();
             let extras: Vec<_> = parts.skip(1).collect();
@@ -409,6 +415,13 @@ pub fn create_ast(pair: &pest::iterators::Pair<Rule>) -> Node {
                 supertype: supertype,
                 bits: bits,
             }
+        }
+        Rule::ReturnExpr => {
+            println!("Pair = {:?}", pair);
+            let exprs: Vec<_> = pair
+                .clone().into_inner().collect();
+            println!("Exprs = {:?}", exprs);
+            panic!()
         }
         Rule::StructField => {
             let exprs: Vec<_> = pair.clone().into_inner().collect();
@@ -479,19 +492,19 @@ pub fn create_ast(pair: &pest::iterators::Pair<Rule>) -> Node {
 fn create_primitive_ast(pair: &pest::iterators::Pair<Rule>) -> Node {
     let prim: Vec<_> = pair.clone().into_inner().collect();
     let prim = match prim[0].as_rule() {
-        Rule::Char => {
-            let c = prim[0].as_str().replace("'", "");
-            let c = c.parse::<char>().unwrap();
-            Primitive::Char(c)
-        }
-        Rule::Float => Primitive::Float64(pair.as_str().parse::<f64>().unwrap()),
+        // Rule::Char => {
+        //     let c = prim[0].as_str().replace("'", "");
+        //     let c = c.parse::<char>().unwrap();
+        //     Primitive::Char(c)
+        // }
+        // Rule::Float => Primitive::Float64(pair.as_str().parse::<f64>().unwrap()),
         Rule::Int => Primitive::Int64(pair.as_str().parse::<i64>().unwrap()),
-        Rule::String => Primitive::String(
-            pair.as_str()
-                .to_string()
-                .replace("\"", "")
-                .replace("\"", ""),
-        ),
+        // Rule::String => Primitive::String(
+        //     pair.as_str()
+        //         .to_string()
+        //         .replace("\"", "")
+        //         .replace("\"", ""),
+        // ),
         _ => panic!("Unsupported primitive encountered in ast {:?}", pair),
     };
     Node::Primitive(prim)

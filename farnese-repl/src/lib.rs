@@ -54,7 +54,7 @@ impl<'a> Repl<'a> {
         }
 
         let fflush = self.main_module.get_function("fflush");
-        let null_ptr = context.i8_type().ptr_type(0.into()).const_null();
+        let null_ptr = context.ptr_type(0.into()).const_null();
         let _ = builder.build_call(fflush, &[null_ptr.into()], "flush");
 
         let _ = builder.build_return(None);

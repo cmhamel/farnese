@@ -1,377 +1,506 @@
-use farnese_core::{
-    Core, DataType, LLVMAlloca, LLVMPrintf, LLVMValue, MethodHelper, Module, Primitive, Symbol,
+use farnese_core_v3::{
+    datatype::DataType,
+    modules::Module,
+    primitives::Primitive,
+    symbol::Symbol,
+    traits::*,
+    value::PossibleVal
 };
-use farnese_lexer::ast::{Node, Operator};
-use farnese_lexer::lexer;
-use inkwell::builder::Builder;
-use inkwell::context::Context;
-use inkwell::types::BasicMetadataTypeEnum;
-use inkwell::values::BasicMetadataValueEnum;
+use farnese_lexer::ast::Expr;
+use farnese_lexer::parser;
+use inkwell::{
+    builder::Builder,
+    // context::Context,
+    types::BasicMetadataTypeEnum,
+    values::BasicMetadataValueEnum
+};
 use std::collections::HashMap;
-
-/// a table of modules
-type Modules<'a> = HashMap<Symbol, Module<'a>>;
 /// scope
-type Scope<'a> = HashMap<Symbol, (Value<'a>, DataType)>;
+type Scope<'a> = HashMap<Symbol, (LLVMValue<'a>, DataType)>;
 /// a stack of LLVM values
-type Stack<'a> = Vec<(Value<'a>, DataType)>;
+type Stack<'a> = Vec<(LLVMValue<'a>, DataType)>;
 /// basic value type
-type Value<'a> = BasicMetadataValueEnum<'a>;
+type LLVMValue<'a> = BasicMetadataValueEnum<'a>;
+
+fn create_addition_methods<'a, 'b>(builder: &'b Builder<'a>, module: &'b Module<'a>) {
+    let context = module.get_context();
+    let f32_type = context.f32_type();
+    let f64_type = context.f64_type();
+    let i32_type = context.i32_type();
+    let i64_type = context.i64_type();
+
+    // f32 addition
+    let func = f32_type.fn_type(
+        &[f32_type.into(), f32_type.into()], false
+    );
+    let func = module.add_function("__add_float32", func, None);
+    let top = context.append_basic_block(func, "top");
+    builder.position_at_end(top);
+    let a = func.get_nth_param(0).unwrap().into_float_value();
+    let b = func.get_nth_param(1).unwrap().into_float_value();
+    let sum = builder.build_float_add(a, b, "").unwrap();
+    builder.build_return(Some(&sum));
+
+    // f64 addition
+    let func = f64_type.fn_type(
+        &[f64_type.into(), f64_type.into()], false
+    );
+    let func = module.add_function("__add_float64", func, None);
+    let top = context.append_basic_block(func, "top");
+    builder.position_at_end(top);
+    let a = func.get_nth_param(0).unwrap().into_float_value();
+    let b = func.get_nth_param(1).unwrap().into_float_value();
+    let sum = builder.build_float_add(a, b, "").unwrap();
+    builder.build_return(Some(&sum));
+
+    // i32 addition
+    let func = i32_type.fn_type(
+        &[i32_type.into(), i32_type.into()], false
+    );
+    let func = module.add_function("__add_int32", func, None);
+    let top = context.append_basic_block(func, "top");
+    builder.position_at_end(top);
+    let a = func.get_nth_param(0).unwrap().into_int_value();
+    let b = func.get_nth_param(1).unwrap().into_int_value();
+    let sum = builder.build_int_add(a, b, "").unwrap();
+    builder.build_return(Some(&sum));
+
+    // i64 addition
+    let func = i64_type.fn_type(
+        &[i64_type.into(), i64_type.into()], false
+    );
+    let func = module.add_function("__add_int64", func, None);
+    let top = context.append_basic_block(func, "top");
+    builder.position_at_end(top);
+    let a = func.get_nth_param(0).unwrap().into_int_value();
+    let b = func.get_nth_param(1).unwrap().into_int_value();
+    let sum = builder.build_int_add(a, b, "").unwrap();
+    builder.build_return(Some(&sum));
+}
+
+fn create_convert_methods<'a, 'b>(builder: &'b Builder<'a>, module: &'b Module<'a>) {
+    let context = module.get_context();
+    let f32_type = context.f32_type();
+    let f64_type = context.f64_type();
+    let i32_type = context.i32_type();
+    let i64_type = context.i64_type();
+
+    // i32 -> f32
+    let func = f32_type.fn_type(&[i32_type.into()], false);
+    let func = module.add_function("__convert_i32_to_f32", func, None);
+    let top = context.append_basic_block(func, "top");
+    builder.position_at_end(top);
+    let a = func.get_nth_param(0).unwrap().into_int_value();
+    let a = builder.build_signed_int_to_float(a, f32_type, "").unwrap();    
+    builder.build_return(Some(&a));
+
+    // i64 -> f64
+    let func = f64_type.fn_type(&[i64_type.into()], false);
+    let func = module.add_function("__convert_i64_to_f64", func, None);
+    let top = context.append_basic_block(func, "top");
+    builder.position_at_end(top);
+    let a = func.get_nth_param(0).unwrap().into_int_value();
+    let a = builder.build_signed_int_to_float(a, f64_type, "").unwrap();    
+    builder.build_return(Some(&a));
+}
+
+#[derive(Clone, Debug)]
+pub enum FarneseExpr {
+    DataType(DataType),
+    Empty,
+    Function(Function)
+}
+
+// struct MethodSignature {
+//     args: Vec<(Symbol, DataType)>,
+//     // body: Vec<AbstractType>,
+//     ret: DataType
+// }
+#[derive(Clone, Debug)]
+struct Function {
+    name: Symbol,
+    methods: HashMap<Vec<DataType>, DataType>
+}
 
 pub struct Compiler<'a> {
-    modules: Modules<'a>,
-    pub scope: Scope<'a>,
-    pub stack: Stack<'a>,
+    pub builder: Builder<'a>,
+    pub module: Module<'a>,
+    scope: Scope<'a>,
+    stack: Stack<'a>
 }
 
 impl<'a> Compiler<'a> {
-    pub fn new(context: &'a Context) -> Self {
-        let mut modules = Modules::<'a>::new();
-        let scope = Scope::<'a>::new();
-        let stack = Stack::<'a>::new();
-
-        // setup core
-        let mut core = Core::new(&context);
-        let core_module = core.bootstrap();
-        let _ = core_module.print_to_file("Core.ll");
-        modules.insert(Symbol::new("Core"), core_module);
+    pub fn new(builder: Builder<'a>, module: Module<'a>) -> Self {
+        create_addition_methods(&builder, &module);
+        create_convert_methods(&builder, &module);
 
         Self {
-            modules: modules,
-            scope: scope,
-            stack: stack,
+            builder: builder,
+            module: module,
+            scope: Scope::<'a>::new(),
+            stack: Stack::<'a>::new()
         }
     }
 
-    fn compile_binary_expr<'b>(
-        &mut self,
-        builder: &'b Builder<'a>,
-        module: &mut Module<'a>,
-        op: Operator,
-        lhs: Node,
-        rhs: Node,
-    ) {
-        self.compile_expr(builder, module, lhs);
-        self.compile_expr(builder, module, rhs);
-        let (rhs, _rhs_type) = self.stack.pop().unwrap();
-        let (lhs, lhs_type) = self.stack.pop().unwrap();
-
-        // let result: BasicValueEnum<'a> = match lhs {
-        let result: (Value<'a>, DataType) = match lhs {
-            Value::IntValue(x) => match rhs {
-                Value::IntValue(y) => match op {
-                    Operator::Minus => (
-                        Value::IntValue(builder.build_int_sub(x, y, "").unwrap()),
-                        lhs_type,
-                    ),
-                    Operator::Plus => (
-                        Value::IntValue(builder.build_int_add(x, y, "").unwrap()),
-                        lhs_type,
-                    ),
-                    _ => todo!("Unsupported op {:?}", op),
-                },
-                _ => todo!("Types don't match"),
-            },
-            _ => todo!("Not supported yet"),
-        };
-        self.stack.push(result);
-    }
-
-    pub fn compile_expr<'b>(
-        &mut self,
-        builder: &'b Builder<'a>,
-        module: &mut Module<'a>,
-        expr: Node,
-    ) {
+    pub fn ast_to_core(&self, expr: Expr) -> FarneseExpr {
         match expr {
-            Node::AbstractType { name, supertype } => {
-                let datatype = DataType::new_abstract_type(&name, &supertype);
-                module.insert_type(datatype);
-            }
-            Node::AssignmentExpr { identifier, value } => {
-                self.compile_expr(&builder, module, *value);
-                let prev_val_ptr = self.stack.pop().unwrap();
-
-                self.scope.insert(Symbol::new(&identifier), prev_val_ptr);
-            }
-            Node::BinaryExpr { op, lhs, rhs } => {
-                self.compile_binary_expr(&builder, module, op, *lhs, *rhs)
-            }
-            Node::Empty => {
-                // do nothing
-            }
-            Node::Exports { symbols } => {
-                for export in symbols.iter() {
-                    // module.push_export(export);
-                    match export {
-                        Node::Symbol(x) => module.push_export(Symbol::new(x)),
-                        _ => todo!(),
-                    }
-                }
-            }
-            Node::Function {
-                name,
-                args,
-                return_type,
-                body,
-            } => self.compile_function(module, &name, &args, &return_type, &body),
-            Node::MethodCall { name, args } => {
-                self.compile_method_call(&builder, module, &name, args)
-            }
-            Node::ParenthesesExpr { expr } => {
-                self.compile_expr(&builder, module, *expr);
-            }
-            Node::Primitive(x) => {
-                let x: Primitive = x.into();
-                // let val = x.emit_ir_value(module);
-                let val = match x {
-                    Primitive::String(_) => x.emit_ir_alloca(&builder, module).into(),
-                    _ => x.emit_ir_value(module),
+            Expr::AbstractType { name, supertype } => {
+                let supertype = match *supertype {
+                    Expr::Symbol(x) => x,
+                    _ => todo!()
                 };
-                let datatype = x.get_datatype();
-                self.stack.push((val.into(), datatype));
+                FarneseExpr::DataType(
+                    DataType::create_abstract_type(name.as_str(), &supertype)
+                )
             }
-            Node::PrimitiveType {
-                name,
-                supertype,
-                bits,
-            } => {
-                let datatype = DataType::new_primitive_type(&name, &supertype, bits);
-                module.insert_type(datatype);
+            Expr::Empty => {
+                FarneseExpr::Empty
             }
-            Node::StructType {
-                name,
-                supertype,
-                field_names,
-                field_types,
-            } => {
-                // hack for now TODO refactor this
-                let field_names = field_names
-                    .iter()
-                    .map(|x| Symbol::new(x))
+            Expr::PrimitiveType { name, supertype, bits } => {
+                let supertype = match *supertype {
+                    Expr::Symbol(x) => x,
+                    _ => todo!()
+                };
+                FarneseExpr::DataType(
+                    DataType::create_primitive_type(name.as_str(), &supertype, bits)
+                )
+            }
+            _ => todo!("Expr = {:#?}", expr)
+        }
+    }
+
+    pub fn compile_primitive(&mut self, expr: Expr) {
+        let val: PossibleVal = expr.into();
+        let ty = match val {
+            PossibleVal::Primitive(ref x) => {
+                match x {
+                    Primitive::Float64(_) => self.module.datatypes.get(&Symbol::new("Float64")),
+                    Primitive::Int32(_) => self.module.datatypes.get(&Symbol::new("Int32")),
+                    Primitive::Int64(_) => self.module.datatypes.get(&Symbol::new("Int64")),
+                }
+            }
+            _ => panic!()
+        }.unwrap();
+        let ptr = val.alloca(&self.builder, &self.module);
+        let _ = val.store(&self.builder, &self.module, ptr);
+        self.stack.push((ptr.try_into().unwrap(), ty.clone()))
+    }
+
+    pub fn compile_symbol(&self, expr: Expr) -> Symbol {
+        match expr {
+            Expr::Symbol(x) => Symbol::new(&x),
+            _ => todo!()
+        }
+    }
+
+    pub fn eval(&mut self, expr: &str) {
+        let expr = Expr::from_string(expr);
+        self.eval_expr(expr)
+    }
+
+    fn eval_expr(&mut self, expr: Expr) {
+        let context = self.module.get_context();
+        match expr {
+            Expr::AbstractType { name, supertype } => {
+                // let name = self.compile_symbol(*name);
+                let supertype = self.compile_symbol(*supertype);
+                let dt = DataType::create_abstract_type(name.as_str(), supertype.name());
+                self.module.datatypes.insert(Symbol::new(&name), dt);  
+            }
+            Expr::Assignment { symbol, expr } => {
+                let sym = self.compile_symbol(*symbol);
+                self.eval_expr(*expr);
+                self.scope.insert(sym, self.stack.pop().unwrap());
+            }
+            Expr::Call { func, args } => {
+                // self.compile_method_call(expr);
+                let func = self.module.get_function(&func)
+                    .expect(format!("Failed to load function {}", func).as_str());
+                let args = args.iter()
+                    .map(|x| match x {
+                        Expr::Call { .. } => {
+                            self.eval_expr(x.clone());
+                            self.stack.pop().unwrap().0
+                        },
+                        Expr::Symbol(y) => self.scope.get(&Symbol::new(&y)).unwrap().0,
+                        _ => todo!("Arg = {:#?}", x)
+                    })
                     .collect::<Vec<_>>();
-                let field_types = Box::new(
-                    field_types
-                        .iter()
-                        .map(|x| module.get_type(x).clone())
-                        .collect(),
-                );
-                let datatype = DataType::new(
-                    Symbol::new(&name),
-                    Symbol::new(&supertype),
-                    false,
-                    false,
-                    false,
-                    field_names,
-                    field_types,
-                );
-                module.insert_type(datatype);
+                let call: LLVMValue = self.builder
+                    .build_call(func, &args, "")
+                    .expect("Call failed")
+                    .try_as_basic_value()
+                    .basic().unwrap().into();
+                
+                let any_type = self.module.datatypes.get(&Symbol::new("Any")).unwrap();
+                
+                println!("Call = {:#?}", call);
+                // panic!()
             }
-            Node::Symbol(x) => {
-                // let val = self
-                //     .scope
-                //     .get(&Symbol::new(&x))
-                //     .expect(format!("Symbol not found: {}", x).as_str());
-                // self.stack.push(val.clone());
-                let x = Symbol::new(&x);
-                let val = x.emit_ir_alloca(&builder, module);
-                let datatype = self.modules.get(&Symbol::new("Core"))
-                    .unwrap()
-                    .get_type("Symbol");
-                self.stack.push((val.into(), datatype.clone()));
+            Expr::Empty => {
+
             }
-            _ => todo!("Unsupported type {:?}", expr),
-        }
-    }
+            Expr::Method { func, args, body, ret } => {
+                // let's empty scope here...
+                self.scope.clear();
 
-    fn compile_function<'b>(
-        &mut self,
-        module: &mut Module<'a>,
-        name: &str,
-        args: &Vec<Node>,
-        return_type: &str,
-        body: &Box<Vec<Node>>,
-    ) {
-        let context = module.get_context();
-        let builder = context.create_builder();
+                let func = self.compile_symbol(Expr::Symbol(func));
+                let arg_types = args.iter()
+                    .map(|x| match x {
+                        Expr::Val { val, ty } => {
+                            match &**ty {
+                                Expr::Type(y) => y,
+                                _ => todo!()
+                            }
+                        }
+                        _ => todo!("arg = {:#?}", x)
+                    })
+                    .collect::<Vec<_>>();
+                let llvm_types: Vec<BasicMetadataTypeEnum> = arg_types.iter()
+                    .map(|x| match x.as_str() {
+                        "Int64" => context.i64_type().try_into().unwrap(),
+                        _ => todo!()
+                    })
+                    .collect();
+                let mut arg_map = HashMap::<Symbol, usize>::new();
+                args.iter().enumerate()
+                    .map(|(i, x)| match x {
+                        Expr::Val { val, ty } => {
+                            let val = match &**val {
+                                Expr::Symbol(x) => Symbol::new(&x),
+                                _ => todo!()
+                            };
+                            println!("Val = {:#?}", val);
+                            arg_map.insert(val, i);
+                        }
+                        _ => todo!()
+                    })
+                    .collect::<Vec<_>>();
 
-        // handle main as a special case
-        if name == "main" {
-            let return_type = context.i32_type();
-            let func = return_type.fn_type(&[], false);
-            let func = module.add_function(&name, func, None);
-            let entry = context.append_basic_block(func, "entry");
-            builder.position_at_end(entry);
-            for expr in (*body).iter() {
-                self.compile_expr(&builder, module, expr.clone())
-            }
-            let return_val = return_type.const_int(0, false);
-            let _ = builder.build_return(Some(&return_val));
-            return;
-        }
+                // TODO create return type
+                // let i64_type = context.i64_typ`e();
+                // println!("Arg_name = {:#?}", arg_names);
+                let fn_type = context.void_type().fn_type(&llvm_types, false);
+                let new_fn = self.module.add_function(func.name(), fn_type, None);
+                let entry = context.append_basic_block(new_fn, "top");
+                let _ = self.builder.position_at_end(entry);
 
-        let mut arg_names = Vec::<Symbol>::new();
-        let mut arg_types = Vec::<DataType>::new();
-        let _ = args
-            .iter()
-            .map(|arg| match arg {
-                Node::FunctionArg { name, arg_type } => {
-                    arg_names.push(Symbol::new(name));
-                    arg_types.push(module.get_type(arg_type).clone());
+                // load up all inputs into scope
+                for (name, index) in arg_map.iter() {
+                    let val = new_fn.get_nth_param(*index as u32).unwrap();
+                    let ty = self.module.datatypes.get(&Symbol::new(arg_types[*index])).unwrap();
+                    self.scope.insert(name.clone(), (val.into(), ty.clone()));
                 }
-                _ => panic!("Shouldn't happen"),
-            })
-            .collect::<Vec<_>>();
-        let method_name = name.to_owned()
-            + "_"
-            + &arg_types
-                .iter()
-                .map(|x| x.name().name())
-                .collect::<Vec<_>>()
-                .join("_");
 
-        // TODO need to figure out how to infer return type
-        let return_type = module.get_type(&return_type);
-
-        // setup field types and return type
-        let arg_types: Vec<_> = arg_types
-            .iter()
-            .map(|x| x.get_ir_value_type(module).try_into().unwrap())
-            .collect();
-
-        // TODO infer type based on last IR value
-        let return_type = return_type.get_ir_value_type(module);
-        let func = match return_type {
-            BasicMetadataTypeEnum::FloatType(x) => x.fn_type(&arg_types, false),
-            BasicMetadataTypeEnum::IntType(x) => x.fn_type(&arg_types, false),
-            _ => todo!("Need to support blah..."),
-        };
-        // let func = module.add_function(&name, func, None);
-        let func = module.add_function(&method_name, func, None);
-        let entry = context.append_basic_block(func, "entry");
-        builder.position_at_end(entry);
-
-        // need to first load up arguments and store in scope
-        // TODO need to get actual DataType
-        let arg_datatype = DataType::new_primitive_type("Int64", "Integer", 64);
-
-        let _ = arg_names
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(n, name)| {
-                self.scope.insert(
-                    name,
-                    (
-                        func.get_nth_method_input(n.try_into().unwrap()),
-                        arg_datatype.clone(),
-                    ),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        for expr in (*body).iter() {
-            self.compile_expr(&builder, module, expr.clone())
-        }
-
-        // using last value on stack as return value
-        let result = self.stack.pop().unwrap();
-        let _ = match result.0 {
-            Value::FloatValue(x) => builder.build_return(Some(&x)),
-            Value::IntValue(x) => builder.build_return(Some(&x)),
-            _ => todo!("Not supported return type yet"),
-        };
-
-        // pop input argument values
-        let _ = arg_names
-            .iter()
-            .map(|name| self.scope.remove(name))
-            .collect::<Vec<_>>();
-    }
-
-    fn compile_method_call<'b>(
-        &mut self,
-        builder: &'b Builder<'a>,
-        module: &mut Module<'a>,
-        name: &str,
-        args: Box<Vec<Node>>,
-    ) {
-        // get arguments values from scope
-        let arg_vals = args
-            .iter()
-            .map(|x| match &*x {
-                // TODO currently not using the arg type here
-                Node::FunctionArg { name, arg_type: _ } => Symbol::new(&name),
-                _ => todo!("Not supported"),
-            })
-            .map(|x| self.scope.get(&x).unwrap().clone())
-            // .map(|x| x.0) // only need first val
-            .collect::<Vec<_>>();
-
-        // handle printf specially for now.. eventually use a trait
-        let func_result = if name == "printf" {
-            assert!(arg_vals.len() == 1, "printf needs to have one input");
-            arg_vals[0]
-                .emit_ir_printf(builder, module)
-                .try_as_basic_value()
-                .unwrap_left()
-        // }
-        } else {
-            let arg_vals = arg_vals.iter().map(|x| x.0).collect::<Vec<_>>();
-            builder
-                .build_call(
-                    module.get_function(&name),
-                    &arg_vals,
-                    format!("__call__{}", name).as_str(),
-                )
-                .unwrap()
-                .try_as_basic_value()
-                .unwrap_left()
-        };
-        // TODO big hack for now
-        // let func_result_type = context.i64_type();
-        let func_result_type = DataType::new_primitive_type("Int64", "Signed", 64);
-
-        // TODO need the return DataType so we can allocate on the stack
-        // self.stack.push(func_result.into());
-        self.stack.push((func_result.into(), func_result_type));
-    }
-
-    fn compile_module(&mut self, name: Symbol, exprs: Box<Vec<Node>>, context: &'a Context) {
-        let mut module = Module::new(context, name.name());
-        module.link(self.get_module("Core"));
-        let builder = context.create_builder();
-        for ast in exprs.iter() {
-            self.compile_expr(&builder, &mut module, ast.clone());
-        }
-        self.modules.insert(name.clone(), module.clone());
-        let _ = module.print_to_file(format!("{}.ll", name.name()).as_str());
-    }
-
-    pub fn get_module(&self, name: &str) -> &Module<'a> {
-        self.modules.get(&Symbol::new(name)).unwrap()
-    }
-
-    // method mainly used to include core...
-    pub fn insert_module(&mut self, name: &str, module: Module<'a>) {
-        self.modules.insert(Symbol::new(name), module);
-    }
-
-    pub fn include(&mut self, module: &mut Module<'a>, file_name: &str) {
-        let ast: Vec<_> = lexer::parse_file(file_name).unwrap();
-        let context = module.get_context();
-        let builder = context.create_builder();
-        for node in ast {
-            match node {
-                Node::Module { name, exprs } => {
-                    self.compile_module(Symbol::new(&name), exprs, &context)
+                for st in body.iter() {
+                    println!("ST = {:#?}", st);
+                    self.eval_expr(st.clone());
                 }
-                _ => self.compile_expr(&builder, module, node),
+                let _ = self.builder.build_return(None);
+                // panic!()
+            }
+
+            Expr::PrimitiveType { name, supertype, bits } => {
+                // let name = self.compile_symbol(*name);
+                let supertype = self.compile_symbol(*supertype);
+                let dt = DataType::create_primitive_type(&name, supertype.name(), bits);
+                self.module.datatypes.insert(Symbol::new(&name), dt); 
+            }
+            Expr::Val { ty, val } => {
+                let val = match *ty {
+                    Expr::Symbol(ref x) => {
+                        match x.as_str() {
+                            "Float64" |
+                            "Int64" => {
+                                self.compile_primitive(*val);
+                            },
+                            _ => todo!("Type unsupported {:#?}", ty)
+                        }
+                    }
+                    _ => panic!()
+                };
+                // self.stack.push((val, ty))
+            }
+            _ => todo!("Expr = {:#?}", expr)
+        };
+    }
+
+    pub fn include(&mut self, file_name: &str) {
+        let ast: Vec<_> = parser::parse_file(file_name).unwrap();
+        let mut cores = Vec::<FarneseExpr>::new();
+        for expr in ast {
+            // self.eval_expr(expr)
+            let core = self.ast_to_core(expr);
+            cores.push(core.clone());
+            println!("Core = {:#?}", core);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::ffi::c_char;
+    use farnese_lexer::ast::Expr;
+    pub use inkwell::AddressSpace;
+    pub use inkwell::builder::Builder;
+    pub use inkwell::context::Context;
+    use inkwell::OptimizationLevel;
+    use std::fs::File;
+    use std::io::Read;
+    use std::ptr;
+
+    pub struct TestHelper<'a> {
+        // pub builder: Builder<'a>,
+        pub compiler: Compiler<'a>,
+        // pub module: Module<'a>
+    }
+
+    impl<'a> TestHelper<'a> {
+        pub fn new(context: &'a Context, name: &str) -> Self {
+            let ptr_type = context.ptr_type(AddressSpace::default());
+            let builder = context.create_builder();
+            let module = Module::new(context, Symbol::new(name));
+            let compiler = Compiler::new(builder, module);
+            // let module = context.create_module(name);
+            
+            // TODO eventually move a lot of below
+            // to the module type once we figured out
+            // what we need and where it should be
+            let printf_type = context.i32_type()
+                .fn_type(&[ptr_type.into()], true);
+            compiler.module.add_function("printf", printf_type, None);
+
+            let ptr_type = context.ptr_type(AddressSpace::default());
+            let memcpy_ty = context.void_type().fn_type(
+                &[
+                    ptr_type.into(), // dest
+                    ptr_type.into(), // src
+                    context.i64_type().into(),    // size
+                    context.bool_type().into(), // is_volatile
+                ],
+                false,
+            );
+            // TODO figure out what the characters mean
+            compiler.module.add_function("llvm.memcpy.p0.p0.i64", memcpy_ty, None);
+
+            Symbol::create_opaque_type(&compiler.builder, &compiler.module, "Symbol");
+            Symbol::set_opaque_type_init(&compiler.builder, &compiler.module);
+
+            DataType::create_opaque_type(&compiler.builder, &compiler.module, "DataType");
+            DataType::set_opaque_type_init(&compiler.builder, &compiler.module);
+
+            Self {
+                // builder: builder,
+                compiler: compiler,
+                // module: module
             }
         }
+
+        pub fn start(&self) {
+            let context = self.compiler.module.get_context();
+            let fn_type = context.i32_type().fn_type(&[], false);
+            let function = self.compiler.module.add_function("main", fn_type, None);
+            let entry = context.append_basic_block(function, "entry");
+            self.compiler.builder.position_at_end(entry);
+        }
+
+        pub fn end(&self) {
+            let zero = self.compiler.module.get_context().i32_type().const_int(0, false);
+            let _ = self.compiler.builder.build_return(Some(&zero));
+        }
+
+        pub fn run(&self) -> String {
+            let engine = self.compiler
+                .module
+                .create_jit_execution_engine(OptimizationLevel::None)
+                .expect("Failed to create execution engine");
+            let string = unsafe {
+                // === Redirect stdout ===
+                // Save current stdout
+                let stdout_fd = libc::dup(libc::STDOUT_FILENO);
+                let tmpfile = tempfile::NamedTempFile::new().unwrap();
+                let tmpfile_path = tmpfile.path().to_owned();
+                let tmp_fd = libc::open(
+                    tmpfile_path.to_str().unwrap().as_ptr() as *const c_char,
+                    libc::O_WRONLY,
+                );
+    
+                // Redirect stdout to tmp file
+                libc::dup2(tmp_fd, libc::STDOUT_FILENO);
+    
+                // Run JITted `main`
+                let addr = engine.get_function_address("main").unwrap();
+                let main_fn = std::mem::transmute::<usize, extern "C" fn() -> i32>(addr as usize);
+                let _ret_code = main_fn();
+    
+                // Flush stdout
+                libc::fflush(ptr::null_mut());
+    
+                // Restore original stdout
+                libc::dup2(stdout_fd, libc::STDOUT_FILENO);
+                libc::close(tmp_fd);
+    
+                // Read output from temp file
+                let mut file = File::open(tmpfile_path).unwrap();
+                let mut output = String::new();
+                file.read_to_string(&mut output).unwrap();
+    
+                // assert_eq!(output.trim(), "Hello, LLVM!");
+                output.trim().to_string()
+            };
+            string
+        }
+
+        pub fn show_ir(&self) {
+            println!("Current IR:");
+            self.compiler.module.print_to_stderr();
+            println!("End of current IR\n\n\n")
+        }
     }
 
-    pub fn modules(&self) -> &HashMap<Symbol, Module<'a>> {
-        &self.modules
+    macro_rules! farnese_test {
+        (
+            $name:ident, $expected:expr,
+            |$ctx:ident, $test:ident, $results:ident| $body:block
+        ) => {
+            #[test]
+            fn $name() -> () {
+                use inkwell::context::Context;
+    
+                let $ctx = Context::create();
+                let mut $test = TestHelper::new(&$ctx, "some test name");
+                $test.start();
+
+                $body
+
+                $test.end();
+                $test.show_ir();
+                let $results = $test.run();
+                assert_eq!($expected, $results);
+                println!("Results = {:?}", $results);
+            }
+        };
     }
+
+    farnese_test!(test_const_int, "", |ctx, test, results| {
+        test.compiler.eval("1");
+    });
+
+    farnese_test!(test_add_two_ints, "", |ctx, test, results| {
+        test.compiler.eval("1 + 2 * (3 + 4.)");
+    });
+
+    farnese_test!(test_printf_int, "1", |ctx, test, results| {
+        // let expr = Expr::from_string("1");
+        // let val: PossibleVal = expr.clone().into();
+        // let ptr = val.alloca(&test.builder, &test.module);
+        // let _ = val.store(&test.builder, &test.module, ptr);
+        // let _ = val.printf(&test.builder, &test.module, ptr);
+        // println!("Expr = {:#?}", expr);
+        // println!("Val  = {:#?}", val);
+        // let compiler = Compiler::new();
+        // compiler.eval("1");
+        test.compiler.eval("printf(1)");
+    });
 }

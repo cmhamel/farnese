@@ -1,0 +1,68 @@
+WHITESPACE = _{ " " | "\t" }
+
+alpha      = { 'a'..'z' | 'A'..'Z' }
+alpha_num  = { 'a'..'z' | 'A'..'Z' | '0'..'9' }
+operator   = { "+" | "-" | "*" | "/" | "^" }
+//unicode    = { "λ" }
+
+//int = _{ ("+" | "-")? ~ ASCII_DIGIT+ }
+int = @{ ASCII_DIGIT+ }
+Float64 = { int ~ "." ~ (ASCII_DIGIT*)? ~ (^"e" ~ int)? }
+Int = { int }
+String = @{
+    "\"" ~ (!"\"" ~ ANY)* ~ "\""
+}
+Symbol = @{
+    ":" ~ Identifier
+}
+
+RawIdentifier = @{
+    (alpha | "_") ~
+    (alpha_num | "!" | "_")*
+}
+
+Identifier = @{ RawIdentifier }
+
+Primitive = {
+    Float64 |
+    Int     |
+    String  | 
+    Symbol
+}
+
+BinaryOperator = _{
+    Add      |
+    Divide   |
+    Modulo   |
+    Multiply |
+    Power    |
+    Subtract
+}
+    Add      = { "+" }
+    Divide   = { "/" }
+    Modulo   = { "%" }
+    Multiply = { "*" }
+    Power    = { "^" }
+    Subtract = { "-" }
+
+UnaryOperator = _{
+    Minus |
+    Plus
+}
+    Minus = { "-" }
+    Plus  = { "+" }
+
+Primary = _{
+    Identifier |
+    //Float64    |
+    //Int        |
+    //String     |
+    Primitive  |
+    "(" ~ Expr ~ ")"
+}
+Atom = _{
+    Minus? ~ Primary
+}
+
+Expr = { Atom ~ (BinaryOperator ~ Atom)* }
+ExprAll = _{ SOI ~ Expr ~ EOI }

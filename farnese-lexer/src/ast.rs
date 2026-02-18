@@ -1,117 +1,71 @@
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Operator {
-    // Assignment,
+use std::collections::HashMap;
+
+// primitives
+type Int = i64;
+type Float64 = f64;
+type Symbol = String;
+type Type = Symbol;
+
+#[derive(Clone, Debug)]
+pub enum BinaryOperator {
+    Add,
     Divide,
-    Equal,
-    EqualEqual,
-    Minus,
+    Modulo,
     Multiply,
-    Plus,
-    SubType,
+    Power,
+    Subtract
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Primitive {
-    Char(char),
-    Float32(f32),
-    Float64(f64),
-    Int16(i16),
-    Int32(i32),
-    Int64(i64),
-    String(String),
-    UInt16(u16),
-    UInt32(u32),
-    UInt64(u64),
+#[derive(Clone, Debug)]
+pub enum UnaryOperator {
+    Minus,
+    Plus
 }
 
-// note this is not the Symbol in core
-// but has the same name since it will be
-// converted to core::Symbol downstream
-pub type Symbol = String;
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Node {
+#[derive(Clone, Debug)]
+pub enum Expr {
     AbstractType {
         name: Symbol,
-        // params: Box<Node>,
-        supertype: Symbol,
+        supertype: Box<Expr>
     },
-    AssignmentExpr {
-        identifier: Symbol,
-        value: Box<Node>,
+    Assignment {
+        symbol: Box<Expr>,
+        expr: Box<Expr>
     },
-    BinaryExpr {
-        op: Operator,
-        lhs: Box<Node>,
-        rhs: Box<Node>,
-    },
-    ConstExpr {
-        expr: Box<Node>,
-    },
-    Empty,
-    Exports {
-        symbols: Box<Vec<Node>>,
+    Call {
+        func: Symbol,
+        args: Box<Vec<Expr>>
     },
     Function {
-        name: Symbol,
-        // arg_names: Vec<Symbol>,
-        args: Box<Vec<Node>>,
-        return_type: Symbol,
-        body: Box<Vec<Node>>,
+        func: Symbol,
+        methods: Box<HashMap<Vec<Expr>, (Expr, Expr)>>
     },
-    FunctionArg {
-        name: Symbol,
-        // arg_type: Box<Node>
-        arg_type: Symbol,
+    Method {
+        func: Symbol,
+        args: Box<Vec<Expr>>,
+        body: Box<Vec<Expr>>,
+        ret: Box<Expr>
     },
-    FunctionArgs {
-        names: Vec<Symbol>,
-        types: Vec<Symbol>,
-    },
-    IfExpr {
-        condition: Box<Node>,
-        if_block: Box<Vec<Node>>,
-        // TODO elseif
-        else_block: Box<Vec<Node>>,
-    },
-    Macro {
-        name: Symbol,
-        args: Box<Vec<Node>>,
-        body: Box<Vec<Node>>,
-    },
-    MethodCall {
-        name: Symbol,
-        args: Box<Vec<Node>>,
-    },
-    Module {
-        name: Symbol,
-        exprs: Box<Vec<Node>>,
-    },
-    Operator(Operator),
-    ParenthesesExpr {
-        expr: Box<Node>,
-    },
-    Primitive(Primitive),
     PrimitiveType {
         name: Symbol,
-        supertype: Symbol,
-        bits: u32,
+        supertype: Box<Expr>,
+        bits: i32
     },
-    StructField {
-        name: Symbol,
-        field_type: Symbol,
+    // Type {
+    //     name: Symbol
+    // },
+    Type(Type),
+    Val {
+        ty: Box<Expr>,
+        val: Box<Expr>
     },
-    StructType {
-        name: Symbol,
-        // generics: Vec<Symbol>,
-        supertype: Symbol,
-        field_names: Vec<Symbol>,
-        field_types: Vec<Symbol>,
-    },
-    SuperType(Symbol),
+    // primitives below
+    Float64(Float64),
+    Int(Int),
+    String(String),
     Symbol(Symbol),
-    UnaryExpr {
-        op: Operator,
-        child: Box<Node>,
-    },
+    //
+    Bottom,
+    // for comments, EOI, etc.
+    Empty
 }

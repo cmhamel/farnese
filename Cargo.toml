@@ -8,13 +8,17 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.23", features = ["derive"] }
 farnese-compiler = { path = "./farnese-compiler" }
-farnese-core = { path = "./farnese-core" }
+#farnese-core = { path = "./farnese-core" }
+# farnese-core-v3 = { path = "./farnese-core-v3" }
+farnese-core-v4 = { path = "./farnese-core-v4" }
 farnese-lexer = { path = "./farnese-lexer" }
-farnese-repl = { path = "./farnese-repl", optional = true }
-inkwell = { version = "0.6.0", features = ["llvm14-0"] }
+#farnese-repl = { path = "./farnese-repl", optional = true }
+# inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+inkwell = { version = "0.7.1", features = ["llvm18-1"] }
 
-[features]
-repl = [ "dep:farnese-repl" ]
+#[features]
+#repl = [ "dep:farnese-repl" ]
 
 [workspace]
-members = [".", "farnese-compiler", "farnese-core", "farnese-lexer", "farnese-repl"]
+# members = [".", "farnese-compiler", "farnese-core-v3", "farnese-lexer"]
+members = [".", "farnese-core-v4", "farnese-lexer"]

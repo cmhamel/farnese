@@ -1,3 +1,3 @@
 pub mod ast;
-pub mod lexer;
+pub mod expr_parser;
 pub mod parser;
