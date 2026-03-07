@@ -1,4 +1,5 @@
-use crate::datatype::{ANY_ID, hash_symbol, Symbol, TypeContext, TypeExpr};
+use crate::datatype::{hash_symbol, Symbol, TypeContext, TypeExpr};
+use crate::primitives::Primitive;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -7,17 +8,83 @@ use std::collections::HashMap;
 //     ctx.is_subtype(a, b) && !ctx.is_subtype(b, a)
 // }
 
-enum BodyExpr {
+#[derive(Debug)]
+pub enum BodyExpr {
     Assignment(Symbol, Box<BodyExpr>),
-    Call(Symbol, TypeExpr),
-    Literal(TypeExpr)
+    Call(Symbol, Vec<BodyExpr>),
+    Primitive(Primitive)
+}
+
+impl BodyExpr {
+    pub fn infer(&self, state: &InferenceState) -> () {
+        match &self {
+            BodyExpr::Assignment(sym, expr) => {
+                // let rhs = expr.infer(state);
+                // state.locals.insert(*sym, rhs);
+
+                // should return type of rhs
+            }
+            BodyExpr::Call(sym, args) => {
+                // should return return type of call
+
+                // first infer the actual types of the args
+                // let arg_types: Vec<_> = args
+                //     .iter()
+                //     .map(|a| a.infer(state))
+                //     .collect();
+                // let tuple_ty = TypeExpr::Tuple(arg_types);
+
+                // now need to check if such a method actually exists
+                // if let Some(method) = self.lookup_method(name, &tuple_ty) {
+                //     self.infer_return_type(method, &arg_types)
+                // } else {
+                //     TypeExpr::Concrete(ANY_ID)
+                // }
+            }
+            BodyExpr::Primitive(val) => {
+                // should return type of primitive
+                // here's where things getting annoying
+                // we have to have primitives already registered
+                // in the type context before this can even work
+                // otherwise we'll always return Any
+            }
+            // _ => ANY_ID
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Method {
-    // pub body: BodyExpr, // TODO
+    pub body: Vec<BodyExpr>, // TODO
     // pub return_type: Option<TypeId>,
     pub signature: TypeExpr
+}
+
+impl Method {
+    pub fn new(signature: TypeExpr, body: Vec<BodyExpr>) -> Self {
+        Self {
+            body: body,
+            signature: signature
+        }
+    } 
+
+    pub fn infer_return_type(&self, ctx: &TypeContext) {
+        let mut state = InferenceState::new(ctx);
+        for expr in &self.body {
+            // match expr {
+            //     BodyExpr::Assignment(sym, expr) => {
+            //         // let expr = self.infer_return_type()
+            //     }
+            //     BodyExpr::Call(sym, args) => {
+
+            //     }
+            //     BodyExpr::Primitive(val) => {
+
+            //     }
+            // }
+            expr.infer(&state)
+        }
+    }
 }
 
 fn compare_specificity(
@@ -48,10 +115,6 @@ impl Function {
             methods: methods,
             name: hash_symbol(name)
         }
-    }
-
-    fn infer_return_type(&self) -> () {
-        
     }
 
     fn lookup_method(
@@ -90,7 +153,8 @@ impl Function {
     }
 }
 
-struct InferenceState<'a> {
+
+pub struct InferenceState<'a> {
     pub type_context: &'a TypeContext,
     pub locals: HashMap<Symbol, TypeExpr>
 }
@@ -104,29 +168,33 @@ impl<'a> InferenceState<'a> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_method_specificity() {
-        let mut ctx = TypeContext::new();
-        ctx.add_primitive_type("Int", vec![], ANY_ID, 32);
+        let ctx = TypeContext::new();
+        // ctx.add_primitive_type("Int", vec![], ANY_ID, 32);
         let t1 = TypeExpr::Tuple(vec![TypeExpr::Concrete(0), TypeExpr::Concrete(0)]);
         let t2 = TypeExpr::Tuple(vec![TypeExpr::Concrete(2), TypeExpr::Concrete(2)]);
-        let m1 = Method { signature: t1.clone() };
-        let m2 = Method { signature: t2.clone() };
+        let m1 = Method::new(t1.clone(), vec![]);
+        let m2 = Method::new(t2.clone(), vec![]);
         let f1 = Function::new("add", vec![m1, m2]);
-        // let m3 = f1.lookup_method(&ctx, &t2);
         println!("M1 = {:#?}", f1.lookup_method(&ctx, &t1));
         println!("M2 = {:#?}", f1.lookup_method(&ctx, &t2));
     }
 
     #[test]
     fn test_simple_add() {
-        let mut ctx = TypeContext::new();
-        ctx.add_primitive_type("Int", vec![], ANY_ID, 32);
+        let ctx = TypeContext::new();
+        // ctx.add_primitive_type("Int", vec![], ANY_ID, 32);
         let t1 = TypeExpr::Tuple(vec![TypeExpr::Concrete(2), TypeExpr::Concrete(2)]);
-        let f1 = Function::new("add", vec![Method { signature: t1.clone() }]);
-        println!("Function = {:#?}", f1);
+        // let f1 = Function::new(
+        //     "add", vec![
+        //         Method::new(t1.clone(), vec![BodyExpr::Call(hash_symbol("__addi32plusi32"), t1.clone())])
+        // ]);
+        // // println!("Function = {:#?}", f1);
+        // f1.methods[0].infer_return_type(&ctx);
     }
 }

@@ -1,12 +1,17 @@
 use clap::{Parser, Subcommand};
 use farnese_compiler::Compiler;
-use farnese_core::Module;
-use farnese_lexer::lexer;
-#[cfg(feature = "repl")]
-use farnese_repl::Repl;
+use farnese_core_v3::{
+    Core,
+    modules::Module,
+    Runtime,
+    symbol::Symbol
+};
+use farnese_lexer::parser;
+// #[cfg(feature = "repl")]
+// use farnese_repl::Repl;
 use inkwell::context::Context;
 use inkwell::OptimizationLevel;
-use inkwell::passes::{PassManager, PassManagerSubType};
+// use inkwell::passes::{PassManager, PassManagerSubType};
 use inkwell::targets::{
     CodeModel, 
     FileType, 
@@ -15,7 +20,9 @@ use inkwell::targets::{
     Target,
     TargetMachine
 };
-use std::path::Path;
+use std::env;
+use std::path::PathBuf;
+use std::process::Command;
 
 #[derive(Clone, Debug, Parser)]
 #[command(arg_required_else_help = true, version)]
@@ -39,6 +46,8 @@ enum Commands {
         assembly_file: Option<String>,
         #[arg(long, short, value_name = "LLVM BITCODE FILE")]
         bitcode_file: Option<String>,
+        #[arg(long, short, value_name = "EXE FILE")]
+        exe_file: Option<String>,
         #[arg(long, short, value_name = "LLVM IR FILE")]
         llvm_ir_file: Option<String>,
         #[arg(long, short, value_name = "LLVM OBJECT FILE")]
@@ -46,26 +55,26 @@ enum Commands {
         #[arg(long, value_name = "OPTIMIZE")]
         optimization_level: Option<i32>,
     },
-    #[cfg(feature = "repl")]
-    #[command(about = "Repl")]
-    Repl {},
+    // #[cfg(feature = "repl")]
+    // #[command(about = "Repl")]
+    // Repl {},
 }
 
-fn setup_pass_manager<T: PassManagerSubType<Input = ()>>() -> PassManager<T> {
-    let pm = inkwell::passes::PassManager::create(());
-    pm.add_instruction_combining_pass();
-    pm.add_reassociate_pass();
-    pm.add_gvn_pass();
-    pm.add_cfg_simplification_pass();
-    pm.add_basic_alias_analysis_pass();
-    pm.add_promote_memory_to_register_pass();
-    pm.add_dead_store_elimination_pass();
-    pm.add_scalar_repl_aggregates_pass();
+// fn setup_pass_manager<T: PassManagerSubType<Input = ()>>() -> PassManager<T> {
+//     let pm = inkwell::passes::PassManager::create(());
+//     pm.add_instruction_combining_pass();
+//     pm.add_reassociate_pass();
+//     pm.add_gvn_pass();
+//     pm.add_cfg_simplification_pass();
+//     pm.add_basic_alias_analysis_pass();
+//     pm.add_promote_memory_to_register_pass();
+//     pm.add_dead_store_elimination_pass();
+//     pm.add_scalar_repl_aggregates_pass();
 
-    // pm.add_function_inlining_pass();
-    // pm.add_aggressive_dce_pass();
-    pm
-}
+//     // pm.add_function_inlining_pass();
+//     // pm.add_aggressive_dce_pass();
+//     pm
+// }
 
 fn setup_target_machine(optimization_level: OptimizationLevel) -> TargetMachine {
     Target::initialize_all(&InitializationConfig::default());
@@ -91,7 +100,7 @@ fn main() {
     let args = CLIArgs::parse();
     match args.command {
         Some(Commands::Ast { input }) => {
-            let asts: Vec<_> = lexer::parse_file(&input).unwrap();
+            let asts: Vec<_> = parser::parse_file(&input).unwrap();
             println!("Dumping ASTs\n\n");
             for ast in asts.iter() {
                 println!("{:?}", ast);
@@ -101,19 +110,44 @@ fn main() {
             input,
             assembly_file,
             bitcode_file,
+            exe_file,
             llvm_ir_file,
             object_file,
             optimization_level
         }) => {
             let context = Context::create();
-
-            let mut compiler = Compiler::new(&context);
+            let builder = context.create_builder();
+            let main_module = Module::new(&context, Symbol::new("Main"));
+            let mut compiler = Compiler::new(builder, main_module);
+            let _core = Core::create(&context);
+            let _runtime = Runtime::new();
             // let mut base_module = Module::new(&context, "Base");
             // compiler.insert_module("Base", base_module.clone());
             // compiler.include(&mut base_module, "src/base/base.jl");
-            let mut main_module = Module::new(&context, "Main");
-            compiler.insert_module("Main", main_module.clone());
-            compiler.include(&mut main_module, &input);
+            // compiler.insert_module("Main", main_module.clone());
+
+            // compiler.include(&mut main_module, &input);
+
+            // compiler.include(&builder, &mut main_module, &input);
+            println!("Before include");
+            compiler.include(&input);
+
+            // TODO hacks for now to route to main automatically
+            let main_fn = context.i32_type().fn_type(&[], false);
+            // let main_fn = main_module.add_function("main", main_fn, None);
+            let main_fn = compiler.module.add_function("main", main_fn, None);
+            let entry = context.append_basic_block(main_fn, "entry");
+            compiler.builder.position_at_end(entry);
+
+            // // compiler.include(&builder, &mut main_module, &input);
+            // println!("Before include");
+            // compiler.include(&input);
+
+            let zero = context.i32_type().const_zero();
+            let _ = compiler.builder.build_return(Some(&zero));
+
+            // main_module.print_to_stderr();
+            compiler.module.print_to_stderr();
 
             // match optimization_level
             let optimization_level = match optimization_level {
@@ -130,12 +164,13 @@ fn main() {
             };
 
             // target
-            let pass_manager = setup_pass_manager();
+            // let pass_manager = setup_pass_manager();
             let target_machine = setup_target_machine(optimization_level);
 
             match assembly_file {
                 Some(x) => {
-                    target_machine.write_to_file(&main_module.module(), FileType::Assembly, x.as_ref())
+                    // target_machine.write_to_file(&main_module.get_module(), FileType::Assembly, x.as_ref())
+                    target_machine.write_to_file(&compiler.module.get_module(), FileType::Assembly, x.as_ref())
                         .unwrap();
                 },
                 _ => {}
@@ -143,40 +178,67 @@ fn main() {
 
             match bitcode_file {
                 Some(x) => {
-                    pass_manager.run_on(main_module.module());
-                    main_module.module().write_bitcode_to_path(&x)
+                    // pass_manager.run_on(main_module.module());
+                    // main_module.get_module().write_bitcode_to_path(&x)
+                    compiler.module.get_module().write_bitcode_to_path(&x)
                 },
                 _ => false
             };
 
             match llvm_ir_file {
                 Some(x) => {
-                    pass_manager.run_on(main_module.module());
-                    main_module.print_to_file(&x)
+                    // pass_manager.run_on(main_module.module());
+                    // main_module.print_to_file(&x)
+                    compiler.module.print_to_file(&x)
                 },
                 _ => {}
             }
 
-            match object_file {
+            // match object_file {
+            //     Some(ref x) => {
+            //         println!("Building object files");
+            //         for (name, module) in compiler.modules() {
+            //             let file_name_str = format!("{}.o", name.name());
+            //             let file_name = Path::new(&file_name_str);
+            //             target_machine.write_to_file(&module.module(), FileType::Object, file_name)
+            //                 .unwrap();
+            //         }   
+            //         target_machine.write_to_file(&main_module.module(), FileType::Object, x.as_ref())
+            //             .unwrap();
+            //     },
+            //     _ => {}
+            // }
+
+            match exe_file {
                 Some(x) => {
-                    for (name, module) in compiler.modules() {
-                        let file_name_str = format!("{}.o", name.name());
-                        let file_name = Path::new(&file_name_str);
-                        target_machine.write_to_file(&module.module(), FileType::Object, file_name)
-                            .unwrap();
-                    }   
-                    target_machine.write_to_file(&main_module.module(), FileType::Object, x.as_ref())
-                        .unwrap();
+                    println!("Building executable {}", x);
+                    let llvm_prefix = env::var("LLVM_SYS_140_PREFIX")
+                        .expect("LLVM_SYS_140_PREFIX environment variable not set");
+                    println!("llvm prefix = {}", llvm_prefix);
+                    // Construct path to clang binary
+                    let mut clang_path = PathBuf::from(llvm_prefix);
+                    clang_path.push("bin");
+                    clang_path.push("clang");
+
+                    // Run clang
+                    let status = Command::new(clang_path)
+                        .args(&["-o", &x, &object_file.unwrap()])
+                        .status()
+                        .expect("Failed to run clang");
+
+                    if !status.success() {
+                        panic!("Linking failed!");
+                    }
                 },
                 _ => {}
             }
         }
-        #[cfg(feature = "repl")]
-        Some(Commands::Repl {}) => {
-            let context = Context::create();
-            let mut repl = Repl::new(&context);
-            repl.start();
-        }
+        // #[cfg(feature = "repl")]
+        // Some(Commands::Repl {}) => {
+        //     let context = Context::create();
+        //     let mut repl = Repl::new(&context);
+        //     repl.start();
+        // }
         _ => println!("Wtf"),
     }
 }

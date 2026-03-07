@@ -157,6 +157,18 @@ impl TypeContext {
         context.types.push(any_type);
         // also creating special case tuple type for Tuple{Args...} <: Tuple case in type system
         context.add_abstract_type("Tuple", vec![], ANY_ID);
+
+        // for now we're going to register the minimal type system as well
+
+        // basic abstract types
+        context.add_abstract_type("Number", vec![], ANY_ID);
+        context.add_abstract_type("Real", vec![], TypeExpr::Concrete(2));
+        context.add_abstract_type("Integer", vec![], TypeExpr::Concrete(3));
+        context.add_abstract_type("Signed", vec![], TypeExpr::Concrete(4));
+
+        // basic primitive types
+        context.add_primitive_type("Int", vec![], TypeExpr::Concrete(5), 32);
+
         context
     }
 
@@ -372,11 +384,11 @@ mod tests {
     #[test]
     fn test_simple_type_system() {
         let mut types = TypeContext::new();
-        types.add_abstract_type("Number", vec![], ANY_ID);
-        types.add_abstract_type("Real", vec![], TypeExpr::Concrete(2));
-        types.add_abstract_type("Integer", vec![], TypeExpr::Concrete(3));
-        types.add_abstract_type("Signed", vec![], TypeExpr::Concrete(4));
-        types.add_primitive_type("Int", vec![], TypeExpr::Concrete(5), 32);
+        // types.add_abstract_type("Number", vec![], ANY_ID);
+        // types.add_abstract_type("Real", vec![], TypeExpr::Concrete(2));
+        // types.add_abstract_type("Integer", vec![], TypeExpr::Concrete(3));
+        // types.add_abstract_type("Signed", vec![], TypeExpr::Concrete(4));
+        // types.add_primitive_type("Int", vec![], TypeExpr::Concrete(5), 32);
         types.add_struct_type("Nothing", vec![], ANY_ID, vec![], vec![], false);
         types.add_struct_type(
             "Pair", vec![], ANY_ID, 
@@ -401,10 +413,10 @@ mod tests {
         let type_expr1 = TypeExpr::from_datatype(types.get_type_from_str("MyType"));
         // println!("Any type expr = {:#?}", TypeExpr::from_datatype(types.get_type_from_str("Any")));
         // println!("Type expr = {:#?}", type_expr1);
-        println!("Supertype = {:#?}", types.instantiate_supertype(
-            &TypeExpr::from_datatype(types.get_type_from_str("MyType2")), 
-            &[TypeExpr::Var(0)])
-        )
+        // println!("Supertype = {:#?}", types.instantiate_supertype(
+        //     &TypeExpr::from_datatype(types.get_type_from_str("MyType2")), 
+        //     &[TypeExpr::Var(0)])
+        // )
         // assert_eq!(types.is_subtype(
         //     &TypeExpr::Apply(
         //         types.get_type_id_from_str("MyType2").try_into().unwrap(),
@@ -420,11 +432,11 @@ mod tests {
     #[test]
     fn test_tuples() {
         let mut types = TypeContext::new();
-        types.add_abstract_type("Number", vec![], ANY_ID);
-        types.add_abstract_type("Real", vec![], TypeExpr::Concrete(2));
-        types.add_abstract_type("Integer", vec![], TypeExpr::Concrete(3));
-        types.add_abstract_type("Signed", vec![], TypeExpr::Concrete(4));
-        types.add_primitive_type("Int", vec![], TypeExpr::Concrete(5), 32);
+        // types.add_abstract_type("Number", vec![], ANY_ID);
+        // types.add_abstract_type("Real", vec![], TypeExpr::Concrete(2));
+        // types.add_abstract_type("Integer", vec![], TypeExpr::Concrete(3));
+        // types.add_abstract_type("Signed", vec![], TypeExpr::Concrete(4));
+        // types.add_primitive_type("Int", vec![], TypeExpr::Concrete(5), 32);
         let a = TypeExpr::Tuple(vec![TypeExpr::Concrete(types.get_type_id_from_str("Int").try_into().unwrap())]);
         let b = TypeExpr::Tuple(vec![TypeExpr::Concrete(types.get_type_id_from_str("Real").try_into().unwrap())]);
         assert_eq!(types.is_subtype(&a, &ANY_ID), true);
@@ -435,8 +447,8 @@ mod tests {
     #[test]
     fn test_union_subtyping() {
         let mut types = TypeContext::new();
-        types.add_abstract_type("Number", vec![], ANY_ID);
-        types.add_abstract_type("Real", vec![], TypeExpr::Concrete(2));
+        // types.add_abstract_type("Number", vec![], ANY_ID);
+        // types.add_abstract_type("Real", vec![], TypeExpr::Concrete(2));
         let a = TypeExpr::Union(vec![TypeExpr::Concrete(2), TypeExpr::Concrete(3)]);
         let b = TypeExpr::Union(vec![ANY_ID, ANY_ID]);
         assert_eq!(types.is_subtype(&a, &b), true);

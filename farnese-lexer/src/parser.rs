@@ -21,30 +21,7 @@ impl FarneseParser {
 pub fn parse_file(file_name: &str) -> std::result::Result<Vec<Expr>, pest::error::Error<Rule>> {
     let source = fs::read_to_string(file_name)
         .expect(format!("Failed reading file: {}", file_name).as_str());
-
-    let mut ast = Vec::new();
-    match FarneseParser::parse(Rule::Program, &source) {
-        Ok(mut pairs) => {
-            for pair in pairs.next().unwrap().into_inner() {
-                match pair.as_rule() {
-                    Rule::EOI => {
-                        // Expr::Empty
-                    }
-                    Rule::Statement => {
-                        let expr = parse_statement(pair);
-                        // println!("Expr = {:#?}", expr);
-                        // ast.push(parse_statement(pair));
-                        ast.push(expr);
-                    }
-                    _ => todo!("Pair = {:#?}", pair)
-                }
-            }
-        }
-        Err(e) => {
-            println!("Parse failed: {:?}", e);
-        }
-    }
-    Ok(ast)
+    parse_string(&source)
 }
 
 pub fn parse_statement(pair: Pair<Rule>) -> Expr {
@@ -156,6 +133,32 @@ pub fn parse_statement(pair: Pair<Rule>) -> Expr {
         }
         _ => todo!("Pair = {:#?}", pair)
     }
+}
+
+pub fn parse_string(source: &str) -> std::result::Result<Vec<Expr>, pest::error::Error<Rule>> {
+    let mut ast = Vec::new();
+    match FarneseParser::parse(Rule::Program, &source) {
+        Ok(mut pairs) => {
+            for pair in pairs.next().unwrap().into_inner() {
+                match pair.as_rule() {
+                    Rule::EOI => {
+                        // Expr::Empty
+                    }
+                    Rule::Statement => {
+                        let expr = parse_statement(pair);
+                        // println!("Expr = {:#?}", expr);
+                        // ast.push(parse_statement(pair));
+                        ast.push(expr);
+                    }
+                    _ => todo!("Pair = {:#?}", pair)
+                }
+            }
+        }
+        Err(e) => {
+            println!("Parse failed: {:?}", e);
+        }
+    }
+    Ok(ast)
 }
 
 pub fn parse_typed_arg(pair: Pair<Rule>) -> (Expr, Expr) {
