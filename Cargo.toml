@@ -6,19 +6,35 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.5.23", features = ["derive"] }
-farnese-compiler = { path = "./farnese-compiler" }
-#farnese-core = { path = "./farnese-core" }
-# farnese-core-v3 = { path = "./farnese-core-v3" }
-farnese-core-v4 = { path = "./farnese-core-v4" }
-farnese-lexer = { path = "./farnese-lexer" }
-#farnese-repl = { path = "./farnese-repl", optional = true }
-# inkwell = { version = "0.6.0", features = ["llvm18-1"] }
-inkwell = { version = "0.7.1", features = ["llvm18-1"] }
+# clap = { version = "4.5.23", features = ["derive"] }
+# farnese-compiler = { path = "./farnese-compiler" }
+# farnese-core-v4 = { path = "./farnese-core-v4" }
+# farnese-lexer = { path = "./farnese-lexer" }
+# inkwell = { version = "0.7.1", features = ["llvm18-1"] }
+clap.workspace = true
+inkwell.workspace = true
+
 
 #[features]
 #repl = [ "dep:farnese-repl" ]
 
 [workspace]
 # members = [".", "farnese-compiler", "farnese-core-v3", "farnese-lexer"]
-members = [".", "farnese-core-v4", "farnese-lexer"]
+# members = [".", "farnese-core-v4", "farnese-lexer"]
+members = [
+    ".",
+    "crates/farnese-core",
+    "crates/farnese-parser"
+]
+
+[workspace.dependencies]
+clap = { version = "4.5.23", features = ["derive"] }
+inkwell = { version = "0.9.0", features = ["llvm18-1"] }
+libc = "0.2.189"
+once_cell = "1.19"
+pest = "2.8.8"
+pest_derive = "2.8.8"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+tempfile = "3.27.0"

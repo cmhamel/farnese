@@ -1,0 +1,91 @@
+// ---------------------------------------------------------------------
+// A tiny language: integers, unary/binary operators, assignment, and
+// Julia-style `function ... end` definitions.
+// ---------------------------------------------------------------------
+
+Program = { SOI ~ Item* ~ EOI }
+Item    = _{ FunctionDef | Statement }
+
+// function add(a, b)
+//     a + b
+// end
+FunctionDef = { "function" ~ Identifier ~ "(" ~ Params? ~ ")" ~ Block }
+Params      = { Identifier ~ ("," ~ Identifier)* }
+Block       = { Statement* ~ "end" }
+
+// A statement is either an assignment or a bare expression.
+// Newlines act as the statement separator (no ";" needed), the same
+// way pest already separates tokens via the implicit WHITESPACE rule.
+Statement  = { Assignment | Expr }
+Assignment = { Identifier ~ "=" ~ Expr }
+
+// Precedence is handled later in Rust via pest's PrattParser, so the
+// grammar itself just needs to produce a flat, alternating stream of
+// (operand, operator, operand, operator, ...) pairs.
+// Flat stream of: [prefix ops] operand [binop [prefix ops] operand]*
+// Both unary (prefix) and binary (infix) operators are left for pest's
+// PrattParser to resolve in Rust -- the grammar just needs to expose
+// them as siblings, not decide precedence itself.
+Expr = { UnaryOp* ~ Primary ~ (BinOp ~ UnaryOp* ~ Primary)* }
+
+// Float must be tried before Int: "1.5" would otherwise match Int's
+// "1" and leave ".5" dangling since Int is a valid prefix of Float.
+Primary = { Float | Int | String | Symbol | FunctionCall | Identifier | "(" ~ Expr ~ ")" }
+
+FunctionCall = { Identifier ~ "(" ~ Args? ~ ")" }
+Args         = { Expr ~ ("," ~ Expr)* }
+
+// Binary operators. Wrapped in a silent rule so each concrete operator
+// (Add, sub, ...) shows up directly as a sibling of the operands.
+BinOp = _{ Add | Sub | Mul | Div | Eq | Neq | Le | Ge | Lt | Gt }
+Add = { "+" }
+Sub = { "-" }
+Mul = { "*" }
+Div = { "/" }
+Eq  = { "==" }
+Neq = { "!=" }
+Le  = { "<=" }
+Ge  = { ">=" }
+Lt  = { "<" }
+Gt  = { ">" }
+
+// Unary operators: numeric negation and boolean-ish "not".
+UnaryOp = _{ Neg | Not }
+Neg = { "-" }
+Not = { "!" }
+
+// Reserved words. `!(ASCII_ALPHANUMERIC | "_")` is a word-boundary check
+// so "end" is rejected but "endpoint" still parses fine as an Identifier.
+Keyword = @{ ("function" | "end") ~ !(ASCII_ALPHANUMERIC | "_") }
+
+Identifier = @{ !Keyword ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+Int        = @{ ASCII_DIGIT+ }
+
+// Covers 1.5, 1., .5, 1e10, 1.5e-10, .5E+3 -- but not a bare "1" (no
+// dot, no exponent), which stays an Int, and not a bare "." alone.
+Float = @{
+    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ Exponent? |
+    "." ~ ASCII_DIGIT+ ~ Exponent? |
+    ASCII_DIGIT+ ~ Exponent
+}
+Exponent = @{ ^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+ }
+
+// Double-quoted strings with a small set of escapes.
+String = ${ "\"" ~ StringInner ~ "\"" }
+StringInner = @{ (Escape | !("\"" | "\\") ~ ANY)* }
+Escape = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r" | "0") }
+
+// Julia-style symbols: :foo, :end, :snake_case
+// Unlike Identifier, a Symbol's name is allowed to shadow a keyword
+// (":end" is a perfectly good symbol even though bare "end" is not
+// a valid identifier), so this deliberately doesn't reuse Identifier.
+Symbol = @{ ":" ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+// Two comment styles: "# ..." to end of line, and """ ... """ block
+// comments (checked first since it's the longer/more specific match --
+// a lone " belongs to the String rule instead, not to this rule).
+COMMENT = _{ BlockComment | LineComment }
+BlockComment = _{ "\"\"\"" ~ (!"\"\"\"" ~ ANY)* ~ "\"\"\"" }
+LineComment  = _{ "#" ~ (!"\n" ~ ANY)* }

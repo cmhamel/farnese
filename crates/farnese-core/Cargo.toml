@@ -1,0 +1,19 @@
+[package]
+name = "farnese-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+farnese-parser = { path = "../farnese-parser" }
+inkwell = { optional = true, workspace = true }
+
+[dev-dependencies]
+farnese-derive = { path = "../farnese-derive" }
+libc.workspace = true
+once_cell.workspace = true
+tempfile.workspace = true
+
+[features]
+compiler = ["inkwell"]
+interpreter = []
+repl = []

@@ -1,0 +1,9 @@
+[package]
+name = "farnese-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+once_cell.workspace = true
+pest.workspace = true
+pest_derive.workspace = true

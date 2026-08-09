@@ -1,12 +1,12 @@
 use clap::{Parser, Subcommand};
-use farnese_compiler::Compiler;
-use farnese_core_v3::{
-    Core,
-    modules::Module,
-    Runtime,
-    symbol::Symbol
-};
-use farnese_lexer::parser;
+// use farnese_compiler::Compiler;
+// use farnese_core_v3::{
+//     Core,
+//     modules::Module,
+//     Runtime,
+//     symbol::Symbol
+// };
+// use farnese_lexer::parser;
 // #[cfg(feature = "repl")]
 // use farnese_repl::Repl;
 use inkwell::context::Context;
