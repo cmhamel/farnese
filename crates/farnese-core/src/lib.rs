@@ -1,7 +1,9 @@
 mod codegen;
+mod datatype;
 mod primitives;
 mod program;
-mod traits;
+pub mod traits;
+mod value;
 
 #[cfg(test)]
 mod test_utils;

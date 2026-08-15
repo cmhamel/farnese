@@ -1,13 +1,26 @@
 use crate::codegen::*;
+use crate::datatype::DataType;
+use crate::program::{InferenceHelper, TypedExpr};
 use crate::traits::*;
 use farnese_parser::*;
-use inkwell::values::{BasicValueEnum, PointerValue};
+use inkwell::values::BasicValueEnum;
 
-#[cfg(feature = "compiler")]
 impl<'ctx> Compile<'ctx> for Primitive {
     type Output = BasicValueEnum<'ctx>;
     fn compile(&self, codegen: &mut CodeGen<'ctx>) -> Self::Output {
         self.emit_ir_value(codegen)
+    }
+}
+
+impl Inference for Primitive {
+    type Output = TypedExpr;
+    fn inference(&self, _: &mut InferenceHelper) -> Self::Output {
+        let datatype = match self {
+            Primitive::Float64(_x) => DataType::new_primitive("Float64", 64),
+            Primitive::Int64(_x) => DataType::new_primitive("Int64", 64),
+            _ => todo!()
+        };
+        TypedExpr::Primitive { val: self.clone(), datatype: datatype }
     }
 }
 
@@ -22,15 +35,6 @@ impl Interpret for Primitive {
     }
 }
 
-// impl<'ctx> LLVMAlloca<'ctx> for Primitive {
-//     fn emit_ir_alloca(&self, codegen: &'ctx CodeGen) -> PointerValue<'ctx> {
-//         let val = self.emit_ir_value(codegen);
-//         let ptr = codegen.builder.build_alloca(val.get_type(), "").unwrap();
-//         let _ = codegen.builder.build_store(ptr, val);
-//         ptr
-//     }
-// }
-
 impl<'ctx> LLVMValue<'ctx> for f64 {
     fn emit_ir_value(&self, codegen: &CodeGen<'ctx>) -> BasicValueEnum<'ctx> {
         codegen.context.f64_type()
@@ -40,10 +44,20 @@ impl<'ctx> LLVMValue<'ctx> for f64 {
     }
 }
 
+impl<'ctx> LLVMValue<'ctx> for i64 {
+    fn emit_ir_value(&self, codegen: &CodeGen<'ctx>) -> BasicValueEnum<'ctx> {
+        codegen.context.i64_type()
+            .const_int((*self).try_into().unwrap(), true)
+            .try_into()
+            .unwrap()
+    }
+}
+
 impl<'ctx> LLVMValue<'ctx> for Primitive {
     fn emit_ir_value(&self, codegen: &CodeGen<'ctx>) -> BasicValueEnum<'ctx> {
         match self {
             Primitive::Float64(x) => x.emit_ir_value(codegen),
+            Primitive::Int64(x) => x.emit_ir_value(codegen),
             _ => todo!()
         }
     }
@@ -54,7 +68,6 @@ mod tests {
     use crate::test_utils::TestHelper;
     use super::*;
     use farnese_derive::*;
-    use farnese_parser::*;
 
     #[farnese_component_test]
     fn test_f64() {

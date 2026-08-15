@@ -2,7 +2,6 @@
 use crate::codegen::CodeGen;
 use core::ffi::c_char;
 use inkwell::OptimizationLevel;
-use inkwell::builder::Builder;
 use inkwell::context::Context;
 use libc;
 use once_cell::sync::Lazy;

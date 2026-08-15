@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 farnese-parser = { path = "../farnese-parser" }
-inkwell = { optional = true, workspace = true }
+#inkwell = { optional = true, workspace = true }
+inkwell.workspace = true
 
 [dev-dependencies]
 farnese-derive = { path = "../farnese-derive" }
@@ -14,6 +15,6 @@ once_cell.workspace = true
 tempfile.workspace = true
 
 [features]
-compiler = ["inkwell"]
+#compiler = ["inkwell"]
 interpreter = []
 repl = []
