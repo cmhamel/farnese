@@ -19,8 +19,10 @@ pub enum Expr {
 
 #[derive(Clone, Debug)]
 pub enum Primitive {
+    Float32(f32),
     Float64(f64),
-    Int(i64),
+    Int32(i32),
+    Int64(i64),
     String(String),
     Symbol(String)
 }

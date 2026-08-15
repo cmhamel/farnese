@@ -123,10 +123,10 @@ fn parse_primary(pair: Pair<Rule>) -> Expr {
 fn parse_primitive(pair: Pair<Rule>) -> Expr {
     match pair.as_rule() {
         Rule::Int => Expr::Primitive(
-            Primitive::Int(pair.as_str().parse().expect("Int rule guarantees digits"))
+            Primitive::Int64(pair.as_str().parse().expect("Int64 rule guarantees digits"))
         ),
         Rule::Float => Expr::Primitive(
-            Primitive::Float64(pair.as_str().parse().expect("Float rule guarantees valid syntax"))
+            Primitive::Float64(pair.as_str().parse().expect("Float64 rule guarantees valid syntax"))
         ),
         Rule::String => Expr::Primitive(Primitive::String(parse_string(pair))),
         Rule::Symbol => Expr::Primitive(Primitive::Symbol(pair.as_str()[1..].to_string())), // strip leading ':'
